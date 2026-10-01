@@ -1,141 +1,57 @@
-const fs = require('fs');
-const path = require('path');
-
-module.exports = async function handler(req, res) {
-  // Configuración de cabeceras CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  // Detectar qué almacenamiento está configurado en las variables de entorno de Vercel
-  const hasBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
-  const hasKV = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
-
-  // ─────────────────────────────────────────────
-  // 1. GET: Obtener la configuración actual
-  // ─────────────────────────────────────────────
-  if (req.method === 'GET') {
-    try {
-      // Prioridad 1: Vercel Blob
-      if (hasBlob) {
-        try {
-          const { list } = require('@vercel/blob');
-          const { blobs } = await list({ prefix: 'config.json' });
-          if (blobs && blobs.length > 0) {
-            const blobRes = await fetch(blobs[0].url + '?v=' + Date.now(), { cache: 'no-store' });
-            if (blobRes.ok) {
-              const data = await blobRes.json();
-              res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-              return res.status(200).json(data);
-            }
-          }
-        } catch (blobErr) {
-          console.warn('Error leyendo Vercel Blob, probando siguiente opción:', blobErr.message);
-        }
-      }
-
-      // Prioridad 2: Vercel KV
-      if (hasKV) {
-        try {
-          const { kv } = require('@vercel/kv');
-          const data = await kv.get('plano_config');
-          if (data) {
-            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-            return res.status(200).json(data);
-          }
-        } catch (kvErr) {
-          console.warn('Error leyendo Vercel KV, probando siguiente opción:', kvErr.message);
-        }
-      }
-
-      // Prioridad 3: Archivo config.json local en el repositorio/disco
-      const localFile = path.join(process.cwd(), 'config.json');
-      if (fs.existsSync(localFile)) {
-        const content = fs.readFileSync(localFile, 'utf8');
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-        return res.status(200).json(JSON.parse(content));
-      }
-
-      return res.status(404).json({ error: 'Configuración no encontrada en el servidor' });
-    } catch (err) {
-      console.error('Error general en GET /api/config:', err);
-      return res.status(500).json({ error: 'Error al leer configuración: ' + err.message });
+{
+  "version": 3,
+  "updatedAt": 1727618000000,
+  "currentMapId": "map-default",
+  "maps": {
+    "map-default": {
+      "id": "map-default",
+      "building": "Edificio 1",
+      "level": "PB",
+      "viewBox": "0 0 1600 1002",
+      "svg": "<svg id=\"Layer_1\" class=\"base\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1600 1002\"><rect fill=\"#f0f2f5\" width=\"1600\" height=\"1002\" rx=\"12\"/><text x=\"800\" y=\"480\" text-anchor=\"middle\" fill=\"#8a94a6\" font-size=\"36\" font-family=\"Arial, sans-serif\">Cargá un plano SVG desde el modo administrador</text><text x=\"800\" y=\"530\" text-anchor=\"middle\" fill=\"#b0b8c8\" font-size=\"20\" font-family=\"Arial, sans-serif\">o colocá tus archivos SVG en esta carpeta</text></svg>",
+      "spaces": {
+        "1": { "name": "Entrada principal", "x": 300, "y": 500 },
+        "2": { "name": "Recepción", "x": 500, "y": 500 },
+        "3": { "name": "Patio central", "x": 800, "y": 500 },
+        "4": { "name": "Escalera a 1er Piso", "x": 1000, "y": 400 },
+        "5": { "name": "Dirección", "x": 500, "y": 300 },
+        "6": { "name": "Biblioteca", "x": 800, "y": 300 },
+        "7": { "name": "Aula 1", "x": 1100, "y": 600 },
+        "8": { "name": "Aula 2", "x": 1300, "y": 600 }
+      },
+      "routes": {
+        "1-2": [
+          { "x": 300, "y": 500 },
+          { "x": 500, "y": 500 }
+        ],
+        "2-3": [
+          { "x": 500, "y": 500 },
+          { "x": 800, "y": 500 }
+        ],
+        "3-4": [
+          { "x": 800, "y": 500 },
+          { "x": 1000, "y": 500 },
+          { "x": 1000, "y": 400 }
+        ],
+        "2-5": [
+          { "x": 500, "y": 500 },
+          { "x": 500, "y": 300 }
+        ],
+        "3-6": [
+          { "x": 800, "y": 500 },
+          { "x": 800, "y": 300 }
+        ],
+        "3-7": [
+          { "x": 800, "y": 500 },
+          { "x": 1100, "y": 500 },
+          { "x": 1100, "y": 600 }
+        ],
+        "7-8": [
+          { "x": 1100, "y": 600 },
+          { "x": 1300, "y": 600 }
+        ]
+      },
+      "links": []
     }
   }
-
-  // ─────────────────────────────────────────────
-  // 2. POST: Guardar configuración
-  // ─────────────────────────────────────────────
-  if (req.method === 'POST') {
-    try {
-      let data = req.body;
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch (parseErr) {
-          return res.status(400).json({ error: 'El cuerpo de la petición no es un JSON válido' });
-        }
-      }
-
-      if (!data || !data.maps) {
-        return res.status(400).json({ error: 'La estructura de datos enviada no contiene mapas válidos' });
-      }
-
-      // Actualizar timestamp
-      data.updatedAt = Date.now();
-
-      // Guardar en Vercel Blob si está configurado
-      if (hasBlob) {
-        const { put } = require('@vercel/blob');
-        const blobResult = await put('config.json', JSON.stringify(data, null, 2), {
-          access: 'public',
-          addRandomSuffix: false
-        });
-        return res.status(200).json({
-          success: true,
-          storage: 'vercel-blob',
-          url: blobResult.url,
-          message: 'Guardado exitosamente en Vercel Blob'
-        });
-      }
-
-      // Guardar en Vercel KV si está configurado
-      if (hasKV) {
-        const { kv } = require('@vercel/kv');
-        await kv.set('plano_config', data);
-        return res.status(200).json({
-          success: true,
-          storage: 'vercel-kv',
-          message: 'Guardado exitosamente en Vercel KV'
-        });
-      }
-
-      // Si se está ejecutando en servidor local (Node.js tradicional)
-      try {
-        const localFile = path.join(process.cwd(), 'config.json');
-        fs.writeFileSync(localFile, JSON.stringify(data, null, 2), 'utf8');
-        return res.status(200).json({
-          success: true,
-          storage: 'local-disk',
-          message: 'Guardado exitosamente en disco local'
-        });
-      } catch (fsErr) {
-        // En Vercel Serverless sin Storage configurado
-        return res.status(400).json({
-          success: false,
-          error: 'storage_missing',
-          message: 'Para guardar directamente en Vercel, crea una base de datos en la pestaña "Storage" (Vercel Blob o KV) y vincúlala a este proyecto.'
-        });
-      }
-    } catch (err) {
-      console.error('Error general en POST /api/config:', err);
-      return res.status(500).json({ error: 'Error al procesar guardado: ' + err.message });
-    }
-  }
-
-  return res.status(405).json({ error: 'Método no permitido' });
-};
+}
