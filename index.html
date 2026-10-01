@@ -1,0 +1,1697 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plano interactivo GSCH</title>
+<style>
+:root {
+  --blue: #182b55;
+  --accent: #e85d3f;
+  --accent-light: #fce8e3;
+  --line: #d9dde5;
+  --bg: #f4f6f9;
+  --muted: #626b7a;
+  --success: #1a8c51;
+  --danger: #a22;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.12);
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; background: var(--bg); color: #182033; }
+
+/* ── Layout ── */
+.app { max-width: 1200px; margin: auto; padding: 18px; }
+.top { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; }
+h2 { margin: 0; font-size: 22px; }
+
+/* ── Mode switch ── */
+.mode-switch { display: flex; background: white; border: 1px solid var(--line); border-radius: 10px; padding: 4px; box-shadow: var(--shadow-sm); }
+.mode-switch button { border: 0; background: transparent; padding: 10px 16px; border-radius: 7px; cursor: pointer; font-weight: 700; transition: background .2s, color .2s; }
+.mode-switch button.active { background: var(--blue); color: white; }
+.mode-switch button:hover:not(.active) { background: #eef0f4; }
+
+/* ── Panels & bars ── */
+.bar, .panel { background: white; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; box-shadow: var(--shadow-sm); }
+.bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ── Form elements ── */
+button, select, input { font: inherit; }
+button, select, input[type=text], input[type=number], input[type=password] {
+  padding: 9px 11px; border: 1px solid #c9ced8; border-radius: var(--radius-sm); background: white;
+  transition: border-color .2s, box-shadow .2s;
+}
+button, select, input[type=text], input[type=number], input[type=password] { outline: none; }
+button:focus-visible, select:focus-visible, input:focus-visible { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24,43,85,.15); }
+button { cursor: pointer; }
+button.primary { background: var(--blue); color: white; border-color: var(--blue); }
+button.primary:hover { background: #1e3a70; }
+button.active { background: var(--blue); color: white; }
+button.danger { color: var(--danger); border-color: #e1bcbc; }
+button.danger:hover { background: #fef2f2; }
+button.success { background: var(--success); color: white; border-color: var(--success); }
+.hidden { display: none !important; }
+.hint { font-size: 14px; color: var(--muted); margin: 8px 2px 12px; line-height: 1.5; }
+
+/* ── Map area ── */
+.map { background: white; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; overflow: auto; box-shadow: var(--shadow-sm); }
+.stage { position: relative; width: 100%; max-width: 1000px; margin: auto; line-height: 0; }
+.stage > svg.base { display: block; width: 100%; height: auto; }
+.overlay { position: absolute; inset: 0; pointer-events: none; }
+
+/* ── Points ── */
+.point {
+  position: absolute; transform: translate(-50%, -50%);
+  min-width: 38px; height: 38px; padding: 0 8px; border-radius: 20px;
+  border: 3px solid white; background: #081d58; color: white;
+  font-weight: bold; font-size: 14px; display: grid; place-items: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer;
+  pointer-events: auto; user-select: none; white-space: nowrap; line-height: 1;
+  transition: transform .15s, background .2s, box-shadow .2s;
+}
+.point:hover { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 4px 16px rgba(0,0,0,.35); z-index: 10; }
+.point.selected { background: var(--accent); }
+.point.drag { cursor: grabbing; }
+/* Tooltip */
+.point::after {
+  content: attr(data-name); position: absolute; bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%); background: rgba(24,43,85,.92); color: white;
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 400;
+  white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .2s;
+}
+.point:hover::after { opacity: 1; }
+
+/* Pulse animation for newly placed points */
+@keyframes pointPulse {
+  0% { box-shadow: 0 0 0 0 rgba(232,93,63,.6); }
+  70% { box-shadow: 0 0 0 14px rgba(232,93,63,0); }
+  100% { box-shadow: 0 0 0 0 rgba(232,93,63,0); }
+}
+.point.just-placed { animation: pointPulse .6s ease-out; }
+
+/* User route view: hide non-route points, highlight origin/dest */
+.point.point-hidden { opacity: 0; pointer-events: none; transform: translate(-50%,-50%) scale(.3); transition: opacity .35s, transform .35s; }
+.point.point-origin {
+  background: var(--success); border-color: #b6f0cf; transform: translate(-50%,-50%) scale(1.15);
+  animation: endpointPulse 1.8s ease-in-out infinite;
+}
+.point.point-origin::after { content: "📍 " attr(data-name) " (Inicio)"; opacity: 1; }
+.point.point-dest {
+  background: var(--accent); border-color: #fdd; transform: translate(-50%,-50%) scale(1.15);
+  animation: endpointPulse 1.8s ease-in-out .3s infinite;
+}
+.point.point-dest::after { content: "🏁 " attr(data-name) " (Destino)"; opacity: 1; }
+@keyframes endpointPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,93,63,.5); }
+  50% { box-shadow: 0 0 0 10px rgba(232,93,63,0); }
+}
+
+/* Cross-map link badge on points */
+.point .link-badge {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+  background: #f59e0b; color: white; font-size: 10px; font-weight: 700;
+  display: grid; place-items: center; border: 2px solid white; line-height: 1;
+}
+
+/* ── Routes ── */
+.route-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.route-layer polyline {
+  fill: none; stroke: #aaa; stroke-width: 10; stroke-linecap: round;
+  stroke-linejoin: round; opacity: .55; vector-effect: non-scaling-stroke;
+}
+.route-layer polyline.preview { stroke: #4a78d1; opacity: .85; stroke-dasharray: 12 6; }
+/* Active route: draw-on animation */
+.route-layer polyline.active {
+  stroke: var(--accent); opacity: .95; marker-end: url(#arrowEnd);
+}
+/* Traveling dot along the active route */
+.route-layer circle.traveler {
+  fill: var(--accent); stroke: white; stroke-width: 3; filter: drop-shadow(0 2px 4px rgba(0,0,0,.3));
+}
+/* Route shadow for depth */
+.route-layer polyline.route-shadow {
+  stroke: rgba(0,0,0,.15); stroke-width: 14; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; opacity: 1;
+}
+
+/* ── Grid & form helpers ── */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.space-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 10px; }
+.space-card { border: 1px solid var(--line); border-radius: 9px; padding: 9px; background: #fafbfc; transition: border-color .2s; }
+.space-card:hover { border-color: #b0b8c8; }
+.space-card .row { justify-content: space-between; }
+.small { font-size: 12px; color: var(--muted); }
+
+/* ── Status messages ── */
+.status { font-size: 14px; padding: 9px 10px; background: #f7f8fa; border-radius: var(--radius-sm); margin-top: 10px; transition: background .3s; }
+.status.status-ok { background: #e8f5e9; color: #1a6b35; }
+.status.status-warn { background: #fff8e1; color: #8d6e0f; }
+.status.status-error { background: #fef2f2; color: var(--danger); }
+
+/* ── Route table ── */
+.route-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+.route-table th, .route-table td { border-bottom: 1px solid #e6e8ed; padding: 8px; text-align: left; }
+.route-table th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+
+/* ── Modal ── */
+.modal {
+  position: fixed; inset: 0; background: rgba(10,20,40,.45);
+  display: grid; place-items: center; padding: 20px; z-index: 100;
+  animation: fadeIn .2s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal-card {
+  background: white; border-radius: 14px; padding: 20px;
+  width: min(420px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,.25);
+  animation: slideUp .25s ease-out;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Toast notifications ── */
+.toast {
+  position: fixed; bottom: 20px; right: 20px; background: var(--blue); color: white;
+  padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0,0,0,.25); z-index: 200;
+  animation: toastIn .3s ease-out;
+  transition: opacity .3s;
+}
+.toast.toast-success { background: var(--success); }
+.toast.toast-error { background: var(--danger); }
+@keyframes toastIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .grid { grid-template-columns: 1fr; }
+  .top { align-items: flex-start; }
+  h2 { font-size: 18px; }
+  .bar { flex-direction: column; align-items: stretch; }
+  .bar button, .bar label { width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <h2>Plano interactivo GSCH</h2>
+    <div class="mode-switch" aria-label="Modo de visualización">
+      <button id="userMode" class="active" type="button">Usuario</button>
+      <button id="adminMode" class="hidden" type="button">Administrador</button>
+      <button id="adminAccess" type="button">🔒 Acceso admin</button>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN UI ═══ -->
+  <div id="adminUI" class="hidden">
+    <div class="bar">
+      <button id="mapsMode" class="active" type="button">📐 Mapas</button>
+      <button id="pointsMode" type="button">📍 Espacios</button>
+      <button id="routesMode" type="button">🗺️ Recorridos</button>
+      <span style="flex:1"></span>
+      <button id="saveServer" class="primary" type="button" title="Guardar cambios directamente en el servidor para todos los usuarios">🚀 Guardar en servidor</button>
+      <button id="save" class="success" type="button" title="Descargar archivo config.json">💾 Descargar copia</button>
+      <button id="reloadRemote" type="button" title="Recargar la configuración oficial desde el servidor">🔄 Recargar servidor</button>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer" title="Cargar archivo JSON manual">📂 Cargar <input id="load" type="file" accept="application/json" style="width:0;height:0;overflow:hidden"></label>
+      <button id="clear" class="danger" type="button">🗑️ Borrar todo</button>
+    </div>
+
+    <!-- Maps panel -->
+    <div id="mapsPanel" class="panel">
+      <h3 style="margin:0 0 8px">Mapas del sistema</h3>
+      <div class="hint" style="background:#eef4ff;color:#1e3a70;border-left:4px solid var(--blue);padding:8px 12px;border-radius:4px;margin-bottom:12px">
+        <strong>🚀 Guardado automático en servidor:</strong> Si estás ejecutando el servidor (ej: <code>node server.js</code> o <code>iniciar-servidor.bat</code>), hacé clic en <strong>"🚀 Guardar en servidor"</strong> y el archivo <code>config.json</code> se actualizará de inmediato para todos los usuarios. También podés usar <strong>"💾 Descargar copia"</strong> si usás un hosting estático como GitHub Pages.
+      </div>
+      <div class="hint">Cada combinación de <strong>Edificio + Nivel</strong> tiene su propio plano, espacios y recorridos.</div>
+      <div class="grid">
+        <div class="field"><label for="mapBuilding">Edificio</label><input id="mapBuilding" type="text" placeholder="Ej.: Primaria"></div>
+        <div class="field"><label for="mapLevel">Nivel</label><input id="mapLevel" type="text" placeholder="Ej.: PB"></div>
+        <div class="field"><label for="mapSvgFile">Plano SVG</label><input id="mapSvgFile" type="file" accept=".svg,image/svg+xml"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="addMap" class="primary" type="button">Agregar / actualizar mapa</button>
+        <button id="deleteMap" class="danger" type="button">Eliminar mapa actual</button>
+      </div>
+      <div id="mapStatus" class="status">Configurá al menos un mapa para comenzar.</div>
+      <div id="mapList" class="space-list"></div>
+    </div>
+
+    <!-- Spaces panel -->
+    <div id="spacesPanel" class="panel hidden">
+      <div class="grid">
+        <div class="field">
+          <label for="spaceCount">Cantidad de espacios</label>
+          <input id="spaceCount" type="number" min="1" max="100" value="8">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="applyCount" class="primary" type="button">Aplicar cantidad</button>
+        </div>
+        <div class="field">
+          <label>Espacio seleccionado</label>
+          <div id="selectedInfo" class="status">Seleccioná un espacio de la lista.</div>
+        </div>
+      </div>
+      <div class="hint">Primero definí cuántos espacios habrá y sus nombres. Luego seleccioná un espacio y hacé clic sobre el plano para colocarlo. Podés arrastrarlo para ajustar su posición.</div>
+      <div id="spaceList" class="space-list"></div>
+    </div>
+
+    <!-- Routes panel -->
+    <div id="routesPanel" class="panel hidden">
+      <div class="row">
+        <div class="field"><label for="routeFrom">Desde</label><select id="routeFrom"></select></div>
+        <div class="field"><label for="routeTo">Hasta</label><select id="routeTo"></select></div>
+        <button id="newRoute" class="primary" type="button">Nuevo recorrido</button>
+        <button id="finishRoute" class="hidden success" type="button">✓ Terminar</button>
+        <button id="undoRoute" class="hidden" type="button">↩ Deshacer</button>
+        <button id="cancelRoute" class="hidden danger" type="button">✕ Cancelar</button>
+      </div>
+      <div id="routeStatus" class="status">Elegí origen y destino. Después hacé clic en el plano para dibujar el camino.</div>
+      <div id="routeList"></div>
+
+      <!-- Cross-map links -->
+      <h4 style="margin:18px 0 6px">🔗 Conexiones entre mapas</h4>
+      <div class="hint">Conectá un espacio de este mapa con un espacio de otro mapa (ej.: escalera PB ↔ escalera 1P). Cuando el usuario busque un recorrido entre mapas, el sistema usará estos enlaces.</div>
+      <div class="row">
+        <div class="field"><label for="linkLocalSpace">Espacio local</label><select id="linkLocalSpace"></select></div>
+        <div class="field"><label for="linkTargetMap">Mapa destino</label><select id="linkTargetMap"></select></div>
+        <div class="field"><label for="linkTargetSpace">Espacio destino</label><select id="linkTargetSpace"></select></div>
+        <button id="addLink" class="primary" type="button">Crear enlace</button>
+      </div>
+      <div id="linkList"></div>
+    </div>
+  </div>
+
+  <!-- ═══ USER UI ═══ -->
+  <div id="userUI" class="panel">
+    <div class="grid">
+      <div class="field"><label for="userMap">Edificio y nivel</label><select id="userMap"></select></div>
+      <div class="field"><label for="userFrom">¿Desde dónde?</label><select id="userFrom"></select></div>
+      <div class="field"><label for="userTo">¿Hasta dónde?</label><select id="userTo"></select></div>
+      <div class="field"><label>&nbsp;</label>
+        <div class="row">
+          <button id="showRoute" class="primary" type="button">Mostrar recorrido</button>
+          <button id="cancelUserRoute" class="danger hidden" type="button">✕ Cancelar recorrido</button>
+        </div>
+      </div>
+    </div>
+    <div id="userStatus" class="status">Elegí edificio, nivel, origen y destino.</div>
+    <!-- Cross-map step indicator -->
+    <div id="crossMapNav" class="hidden" style="margin-top:10px">
+      <div class="hint" id="crossMapInfo"></div>
+      <div class="row">
+        <button id="crossMapPrev" class="hidden" type="button">← Mapa anterior</button>
+        <button id="crossMapNext" class="hidden primary" type="button">Mapa siguiente →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Login Modal ═══ -->
+  <div id="loginModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <div class="modal-card">
+      <h3 id="loginTitle">Acceso de administrador</h3>
+      <div class="hint">Ingresá una de las cuentas autorizadas.</div>
+      <div class="field"><label for="adminUser">Usuario</label><input id="adminUser" type="text" autocomplete="username"></div>
+      <div class="field" style="margin-top:9px"><label for="adminPass">Contraseña</label><input id="adminPass" type="password" autocomplete="current-password"></div>
+      <div class="row" style="margin-top:12px;justify-content:flex-end">
+        <button id="cancelLogin" type="button">Cancelar</button>
+        <button id="loginBtn" class="primary" type="button">Ingresar</button>
+      </div>
+      <div id="loginStatus" class="status hidden"></div>
+    </div>
+  </div>
+
+  <!-- ═══ MAP STAGE ═══ -->
+  <div class="map">
+    <div class="stage" id="stage">
+      <!-- Default placeholder SVG — will be replaced when a real map is loaded -->
+      <svg id="Layer_1" class="base" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1002">
+        <rect fill="#f0f2f5" width="1600" height="1002" rx="12"/>
+        <text x="800" y="480" text-anchor="middle" fill="#8a94a6" font-size="36" font-family="Arial, sans-serif">Cargá un plano SVG desde el modo administrador</text>
+        <text x="800" y="530" text-anchor="middle" fill="#b0b8c8" font-size="20" font-family="Arial, sans-serif">o cargá una configuración existente</text>
+      </svg>
+      <svg class="route-layer" viewBox="0 0 1600 1002" preserveAspectRatio="none">
+        <defs>
+          <!-- Arrow marker for route direction -->
+          <marker id="arrowEnd" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0,0 L12,4 L0,8 Z" fill="var(--accent)" opacity=".9"/>
+          </marker>
+        </defs>
+        <g id="routesLayer"></g>
+      </svg>
+      <div class="overlay" id="overlay"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+'use strict';
+
+/* ═══════════════════════════════════════════════
+   Constants & DOM references
+   ═══════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+const stage = $('stage');
+const overlay = $('overlay');
+const routesLayer = $('routesLayer');
+
+const STORAGE_KEY = 'gsch-plano-config-v3';
+const DEFAULT_SVG = $('Layer_1').outerHTML;
+const DEFAULT_VB = '0 0 1600 1002';
+
+// Auth — NOTE: for a production app, replace with real server-side auth
+const ADMIN_ACCOUNTS = [
+  { user: 'admin1', pass: 'cambiar-esta-clave-1' },
+  { user: 'admin2', pass: 'cambiar-esta-clave-2' }
+];
+
+/* ═══════════════════════════════════════════════
+   Application state
+   ═══════════════════════════════════════════════ */
+let mode = 'user';
+let adminSubmode = 'maps';
+let selectedSpace = 1;
+let spaces = {};
+let routes = {};
+let drawing = null;
+let activeRouteKey = null;
+let currentMapId = 'map-default';
+let maps = {};
+let mapW = 1600, mapH = 1002;
+let adminUnlocked = false;
+
+// User route view state
+let userRouteActive = false;  // true when showing a route in user mode
+let userRouteFrom = null;     // space number of origin
+let userRouteTo = null;       // space number of destination
+
+// Cross-map navigation state
+let crossMapSteps = null;     // array of {mapId, routeKey, from, to} when navigating across maps
+let crossMapStep = 0;         // current step index
+
+// Cross-map links: stored per map as array of {localSpace, targetMapId, targetSpace}
+// Accessed via maps[id].links
+
+/* ═══════════════════════════════════════════════
+   Utility functions
+   ═══════════════════════════════════════════════ */
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function routeKey(a, b) { return `${a}-${b}`; }
+function escHtml(v) {
+  return String(v).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+function label(n) { return spaces[n]?.name || `Espacio ${n}`; }
+function mapLabel(m) { return `${m.building} — ${m.level}`; }
+function currentMap() { return maps[currentMapId]; }
+
+function screenToMap(ev) {
+  const r = stage.getBoundingClientRect();
+  return {
+    x: clamp((ev.clientX - r.left) / r.width * mapW, 0, mapW),
+    y: clamp((ev.clientY - r.top) / r.height * mapH, 0, mapH)
+  };
+}
+function mapToPct(p) { return { x: p.x / mapW * 100, y: p.y / mapH * 100 }; }
+
+/* ═══════════════════════════════════════════════
+   Toast notifications
+   ═══════════════════════════════════════════════ */
+function showToast(msg, type = 'info', duration = 2500) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (type === 'success' ? ' toast-success' : type === 'error' ? ' toast-error' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, duration);
+}
+
+/* ═══════════════════════════════════════════════
+   localStorage persistence
+   ═══════════════════════════════════════════════ */
+function autoSave() {
+  try {
+    syncCurrentMap();
+    const data = { version: 3, updatedAt: Date.now(), maps, currentMapId };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) { /* quota exceeded — silent */ }
+}
+
+function autoLoad() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d.maps && Object.keys(d.maps).length) {
+      maps = d.maps;
+      currentMapId = d.currentMapId || Object.keys(maps)[0];
+      return true;
+    }
+  } catch (e) { /* corrupt data — ignore */ }
+  return false;
+}
+
+/* ═══════════════════════════════════════════════
+   Map sync & loading
+   ═══════════════════════════════════════════════ */
+function syncCurrentMap() {
+  const m = currentMap();
+  if (!m) return;
+  m.spaces = spaces;
+  m.routes = routes;
+  if (!m.links) m.links = [];
+}
+
+function loadMap(id, preserveRoute = false) {
+  syncCurrentMap();
+  const m = maps[id];
+  if (!m) return;
+  currentMapId = id;
+  spaces = m.spaces || {};
+  routes = m.routes || {};
+  if (!m.links) m.links = [];
+  selectedSpace = 1;
+  activeRouteKey = null;
+  drawing = null;
+
+  if (!preserveRoute) {
+    userRouteActive = false;
+    userRouteFrom = null;
+    userRouteTo = null;
+    crossMapSteps = null;
+    $('cancelUserRoute')?.classList.add('hidden');
+    $('crossMapNav')?.classList.add('hidden');
+  }
+
+  const vb = (m.viewBox || DEFAULT_VB).trim().split(/\s+/).map(Number);
+  mapW = vb[2] || 1600;
+  mapH = vb[3] || 1002;
+
+  renderMapSvg(m.svg || DEFAULT_SVG, m.viewBox || DEFAULT_VB);
+  renderAll();
+  $('mapStatus').textContent = `Mapa activo: ${mapLabel(m)}`;
+  autoSave();
+}
+
+function renderMapSvg(markup, viewBox) {
+  const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  let svg = doc.documentElement;
+  if (!svg || svg.nodeName.toLowerCase() !== 'svg') return showToast('SVG inválido', 'error');
+
+  // Sanitize: remove scripts and inline event handlers
+  svg.querySelectorAll('script').forEach(n => n.remove());
+  svg.querySelectorAll('*').forEach(n => {
+    [...n.attributes].forEach(a => { if (/^on/i.test(a.name)) n.removeAttribute(a.name); });
+  });
+
+  svg.setAttribute('id', 'Layer_1');
+  svg.classList.add('base');
+  svg.setAttribute('viewBox', viewBox);
+  svg.removeAttribute('width');
+  svg.removeAttribute('height');
+  svg.style.width = '100%';
+  svg.style.height = 'auto';
+
+  const imported = document.importNode(svg, true);
+  const old = $('Layer_1');
+  if (old) old.replaceWith(imported);
+
+  // Update route layer viewBox to match
+  const routeLayerSvg = stage.querySelector('.route-layer');
+  if (routeLayerSvg) routeLayerSvg.setAttribute('viewBox', viewBox);
+}
+
+/* ═══════════════════════════════════════════════
+   Space management
+   ═══════════════════════════════════════════════ */
+function ensureSpaces(count) {
+  count = clamp(parseInt(count) || 1, 1, 100);
+  const next = {};
+  for (let i = 1; i <= count; i++) {
+    next[i] = spaces[i] || { name: `Espacio ${i}`, x: null, y: null };
+  }
+  spaces = next;
+
+  // Clean orphan routes
+  Object.keys(routes).forEach(k => {
+    const [a, b] = k.split('-').map(Number);
+    if (!spaces[a] || !spaces[b]) delete routes[k];
+  });
+
+  if (!spaces[selectedSpace]) selectedSpace = 1;
+  syncCurrentMap();
+  renderAll();
+  autoSave();
+}
+
+function removeSpace(n) {
+  if (Object.keys(spaces).length <= 1) return showToast('Debe quedar al menos un espacio.', 'error');
+  if (!confirm(`¿Eliminar ${label(n)} y sus recorridos?`)) return;
+
+  delete spaces[n];
+  Object.keys(routes).forEach(k => {
+    if (k.split('-').map(Number).includes(n)) delete routes[k];
+  });
+
+  // Re-index spaces sequentially
+  const oldSpaces = { ...spaces };
+  const ordered = {};
+  const oldKeys = Object.keys(oldSpaces).map(Number).sort((a, b) => a - b);
+  const keyMap = {};
+  oldKeys.forEach((old, i) => { ordered[i + 1] = oldSpaces[old]; keyMap[old] = i + 1; });
+
+  const remapped = {};
+  Object.keys(routes).forEach(k => {
+    const [a, b] = k.split('-').map(Number);
+    if (keyMap[a] && keyMap[b]) remapped[routeKey(keyMap[a], keyMap[b])] = routes[k];
+  });
+
+  spaces = ordered;
+  routes = remapped;
+  selectedSpace = Math.min(selectedSpace, Object.keys(spaces).length);
+  syncCurrentMap();
+  renderAll();
+  autoSave();
+}
+
+/* ═══════════════════════════════════════════════
+   Rendering — Points (with event delegation)
+   ═══════════════════════════════════════════════ */
+function renderPoints() {
+  overlay.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  const cm = currentMap();
+  const linkedSpaces = new Set((cm?.links || []).map(l => l.localSpace));
+
+  Object.keys(spaces).map(Number).forEach(n => {
+    const p = spaces[n];
+    if (p.x == null || p.y == null) return;
+
+    const q = mapToPct(p);
+    const d = document.createElement('button');
+    d.type = 'button';
+    let cls = 'point';
+
+    // User route mode: hide all except origin/dest
+    if (mode === 'user' && userRouteActive) {
+      if (n === userRouteFrom) cls += ' point-origin';
+      else if (n === userRouteTo) cls += ' point-dest';
+      else cls += ' point-hidden';
+    } else if (selectedSpace === n) {
+      cls += ' selected';
+    }
+
+    d.className = cls;
+    d.textContent = n;
+    d.dataset.space = n;
+    d.dataset.name = label(n);
+    d.title = label(n);
+    d.setAttribute('aria-label', `Espacio ${n}: ${label(n)}`);
+    d.style.left = q.x + '%';
+    d.style.top = q.y + '%';
+
+    // Show link badge in admin mode for linked spaces
+    if (mode === 'admin' && linkedSpaces.has(n)) {
+      const badge = document.createElement('span');
+      badge.className = 'link-badge';
+      badge.textContent = '🔗';
+      badge.title = 'Conectado a otro mapa';
+      d.appendChild(badge);
+    }
+
+    frag.appendChild(d);
+  });
+
+  overlay.appendChild(frag);
+}
+
+// Event delegation for point interactions
+overlay.addEventListener('click', e => {
+  const btn = e.target.closest('.point');
+  if (!btn) return;
+  e.stopPropagation();
+
+  const n = +btn.dataset.space;
+
+  if (mode === 'user') {
+    if (userRouteActive) return;
+
+    const fromVal = $('userFrom').value;
+    if (!fromVal || fromVal == n) {
+      $('userFrom').value = n;
+      $('userStatus').textContent = `Origen: ${label(n)}. Elegí o hacé clic en el destino.`;
+      $('userStatus').className = 'status status-ok';
+    } else {
+      $('userTo').value = n;
+      $('userStatus').textContent = `Destino: ${label(n)}. Hacé clic en "Mostrar recorrido".`;
+      $('userStatus').className = 'status status-ok';
+    }
+    return;
+  }
+
+  // Route drawing: clicked on destination?
+  if (mode === 'admin' && adminSubmode === 'routes' && drawing) {
+    if (n === drawing.b) {
+      drawing.path.push({ x: spaces[n].x, y: spaces[n].y });
+      renderRoutes();
+      $('routeStatus').textContent = `Destino alcanzado: ${label(drawing.a)} → ${label(drawing.b)}. Hacé clic en "Terminar".`;
+      return;
+    }
+    if (n !== drawing.a) return;
+  }
+
+  selectedSpace = n;
+  renderPoints();
+  renderSpaceList();
+  $('selectedInfo').textContent = `Espacio ${selectedSpace}: ${label(selectedSpace)}`;
+});
+
+// Dragging points (admin spaces mode)
+overlay.addEventListener('pointerdown', e => {
+  if (mode !== 'admin' || adminSubmode !== 'spaces') return;
+  const btn = e.target.closest('.point');
+  if (!btn) return;
+  e.stopPropagation();
+
+  const n = +btn.dataset.space;
+  btn.setPointerCapture(e.pointerId);
+  btn.classList.add('drag');
+
+  const onMove = ev => {
+    const pos = screenToMap(ev);
+    spaces[n].x = pos.x;
+    spaces[n].y = pos.y;
+    const q = mapToPct(pos);
+    btn.style.left = q.x + '%';
+    btn.style.top = q.y + '%';
+  };
+
+  const onUp = () => {
+    btn.classList.remove('drag');
+    btn.removeEventListener('pointermove', onMove);
+    btn.removeEventListener('pointerup', onUp);
+    syncCurrentMap();
+    autoSave();
+  };
+
+  btn.addEventListener('pointermove', onMove);
+  btn.addEventListener('pointerup', onUp);
+});
+
+/* ═══════════════════════════════════════════════
+   Rendering — Routes
+   ═══════════════════════════════════════════════ */
+function renderRoutes() {
+  routesLayer.innerHTML = '';
+
+  const keys = mode === 'user'
+    ? (activeRouteKey && routes[activeRouteKey] ? [activeRouteKey] : [])
+    : Object.keys(routes);
+
+  keys.forEach(key => {
+    const pathData = routes[key];
+    const pts = pathData.map(p => `${p.x},${p.y}`).join(' ');
+    if (!pts) return;
+    const isActive = key === activeRouteKey;
+
+    // Shadow for depth
+    if (isActive) {
+      const shadow = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      shadow.setAttribute('points', pts);
+      shadow.classList.add('route-shadow');
+      routesLayer.appendChild(shadow);
+    }
+
+    // Main polyline
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('data-key', key);
+    if (isActive) {
+      poly.classList.add('active');
+      // Animate draw-on effect
+      requestAnimationFrame(() => {
+        const len = poly.getTotalLength();
+        poly.style.strokeDasharray = len;
+        poly.style.strokeDashoffset = len;
+        poly.style.transition = 'none';
+        requestAnimationFrame(() => {
+          poly.style.transition = `stroke-dashoffset ${Math.min(len / 600, 2.5)}s ease-out`;
+          poly.style.strokeDashoffset = '0';
+        });
+      });
+    }
+    routesLayer.appendChild(poly);
+
+    // Animated traveling dot for active route
+    if (isActive && pathData.length >= 2) {
+      // Build SVG path string from points for animateMotion
+      let pathD = `M${pathData[0].x},${pathData[0].y}`;
+      for (let i = 1; i < pathData.length; i++) {
+        pathD += ` L${pathData[i].x},${pathData[i].y}`;
+      }
+
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('r', '8');
+      circle.classList.add('traveler');
+
+      const anim = document.createElementNS('http://www.w3.org/2000/svg', 'animateMotion');
+      anim.setAttribute('dur', `${Math.max(2, pathData.length * 0.6)}s`);
+      anim.setAttribute('repeatCount', 'indefinite');
+      anim.setAttribute('path', pathD);
+      circle.appendChild(anim);
+      routesLayer.appendChild(circle);
+    }
+  });
+
+  // Preview while drawing
+  if (mode === 'admin' && drawing?.path?.length) {
+    const pts = drawing.path.map(p => `${p.x},${p.y}`).join(' ');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts);
+    poly.classList.add('preview');
+    routesLayer.appendChild(poly);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   Rendering — Space list (admin)
+   ═══════════════════════════════════════════════ */
+function renderSpaceList() {
+  const el = $('spaceList');
+  el.innerHTML = '';
+  const frag = document.createDocumentFragment();
+
+  Object.keys(spaces).map(Number).forEach(n => {
+    const sp = spaces[n];
+    const card = document.createElement('div');
+    card.className = 'space-card';
+    card.innerHTML = `
+      <div class="row">
+        <strong>Espacio ${n}</strong>
+        <span class="small">${sp.x == null ? '⬜ Sin ubicación' : '✅ Ubicado'}</span>
+      </div>
+      <div style="margin-top:7px">
+        <input type="text" value="${escHtml(sp.name)}" data-rename="${n}" style="width:100%" aria-label="Nombre del espacio ${n}">
+      </div>
+      <div class="row" style="margin-top:7px">
+        <button type="button" data-select="${n}" class="${selectedSpace === n ? 'active' : ''}">Seleccionar</button>
+        <button type="button" data-delete="${n}" class="danger">Eliminar</button>
+      </div>`;
+    frag.appendChild(card);
+  });
+
+  el.appendChild(frag);
+}
+
+// Event delegation for space list
+$('spaceList').addEventListener('input', e => {
+  const inp = e.target.closest('[data-rename]');
+  if (!inp) return;
+  const n = +inp.dataset.rename;
+  spaces[n].name = inp.value || `Espacio ${n}`;
+  syncCurrentMap();
+  updateSelects();
+  renderPoints();
+  autoSave();
+});
+
+$('spaceList').addEventListener('click', e => {
+  const selBtn = e.target.closest('[data-select]');
+  if (selBtn) {
+    selectedSpace = +selBtn.dataset.select;
+    renderPoints();
+    renderSpaceList();
+    $('selectedInfo').textContent = `Espacio ${selectedSpace}: ${label(selectedSpace)}`;
+    return;
+  }
+  const delBtn = e.target.closest('[data-delete]');
+  if (delBtn) {
+    removeSpace(+delBtn.dataset.delete);
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   Rendering — Selects
+   ═══════════════════════════════════════════════ */
+function fillSelect(sel) {
+  if (!sel) return;
+  const old = sel.value;
+  sel.innerHTML = Object.keys(spaces).map(Number).sort((a, b) => a - b)
+    .map(n => `<option value="${n}">${n} — ${escHtml(label(n))}</option>`)
+    .join('');
+  if (spaces[old]) sel.value = old;
+}
+
+function updateUserToSelect() {
+  const sel = $('userTo');
+  if (!sel) return;
+  const old = sel.value;
+  sel.innerHTML = '';
+
+  // Local spaces
+  const localGroup = document.createElement('optgroup');
+  localGroup.label = `📍 Este mapa (${mapLabel(currentMap())})`;
+  Object.keys(spaces).map(Number).sort((a, b) => a - b).forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = `${n}`;
+    opt.textContent = `${n} — ${label(n)}`;
+    localGroup.appendChild(opt);
+  });
+  sel.appendChild(localGroup);
+
+  // Other maps spaces
+  Object.values(maps).forEach(otherMap => {
+    if (otherMap.id === currentMapId) return;
+    const otherSpaces = otherMap.spaces || {};
+    const sKeys = Object.keys(otherSpaces).map(Number).sort((a, b) => a - b);
+    if (!sKeys.length) return;
+    const group = document.createElement('optgroup');
+    group.label = `🌐 ${mapLabel(otherMap)}`;
+    sKeys.forEach(sn => {
+      const opt = document.createElement('option');
+      opt.value = `ext:${otherMap.id}:${sn}`;
+      opt.textContent = `${sn} — ${otherSpaces[sn]?.name || 'Espacio ' + sn}`;
+      group.appendChild(opt);
+    });
+    sel.appendChild(group);
+  });
+
+  if (old && sel.querySelector(`option[value="${old}"]`)) {
+    sel.value = old;
+  }
+}
+
+function updateLinkSelects() {
+  fillSelect($('linkLocalSpace'));
+
+  const mapSel = $('linkTargetMap');
+  if (!mapSel) return;
+  const oldMap = mapSel.value;
+  const otherMaps = Object.values(maps).filter(m => m.id !== currentMapId);
+  mapSel.innerHTML = otherMaps.map(m => `<option value="${m.id}">${escHtml(mapLabel(m))}</option>`).join('');
+  if (otherMaps.some(m => m.id === oldMap)) mapSel.value = oldMap;
+
+  updateLinkTargetSpaces();
+}
+
+function updateLinkTargetSpaces() {
+  const mapSel = $('linkTargetMap');
+  const spaceSel = $('linkTargetSpace');
+  if (!mapSel || !spaceSel) return;
+  const targetMapId = mapSel.value;
+  if (!targetMapId || !maps[targetMapId]) {
+    spaceSel.innerHTML = '<option value="">Sin mapas disponibles</option>';
+    return;
+  }
+  const tSpaces = maps[targetMapId].spaces || {};
+  const keys = Object.keys(tSpaces).map(Number).sort((a, b) => a - b);
+  spaceSel.innerHTML = keys.map(n => `<option value="${n}">${n} — ${escHtml(tSpaces[n]?.name || 'Espacio ' + n)}</option>`).join('');
+}
+
+function updateSelects() {
+  ['routeFrom', 'routeTo', 'userFrom'].forEach(id => fillSelect($(id)));
+  updateUserToSelect();
+  updateLinkSelects();
+}
+
+/* ═══════════════════════════════════════════════
+   Rendering — Cross-map link list (admin)
+   ═══════════════════════════════════════════════ */
+function renderLinkList() {
+  const el = $('linkList');
+  if (!el) return;
+  const cm = currentMap();
+  const links = cm?.links || [];
+  if (!links.length) {
+    el.innerHTML = '<div class="hint">No hay conexiones configuradas para este plano.</div>';
+    return;
+  }
+  el.innerHTML = `<table class="route-table">
+    <thead><tr><th>Espacio local</th><th>Conecta con</th><th>Acción</th></tr></thead>
+    <tbody>${links.map((l, idx) => {
+      const tMap = maps[l.targetMapId];
+      const tMapName = tMap ? mapLabel(tMap) : l.targetMapId;
+      const tSpaceName = tMap?.spaces?.[l.targetSpace]?.name || `Espacio ${l.targetSpace}`;
+      return `<tr>
+        <td><strong>${l.localSpace} — ${escHtml(label(l.localSpace))}</strong></td>
+        <td>🔗 ${escHtml(tMapName)} → <strong>${l.targetSpace} — ${escHtml(tSpaceName)}</strong></td>
+        <td><button type="button" data-dellink="${idx}" class="danger">Eliminar</button></td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+/* ═══════════════════════════════════════════════
+   Rendering — Route list (admin)
+   ═══════════════════════════════════════════════ */
+function renderRouteList() {
+  const el = $('routeList');
+  const keys = Object.keys(routes);
+  if (!keys.length) {
+    el.innerHTML = '<div class="hint">Todavía no hay recorridos configurados.</div>';
+    return;
+  }
+  el.innerHTML = `<table class="route-table">
+    <thead><tr><th>Origen</th><th>Destino</th><th>Puntos</th><th>Acción</th></tr></thead>
+    <tbody>${keys.map(k => {
+      const [a, b] = k.split('-').map(Number);
+      return `<tr>
+        <td>${escHtml(label(a))}</td>
+        <td>${escHtml(label(b))}</td>
+        <td class="small">${routes[k].length} puntos</td>
+        <td><button type="button" data-delroute="${k}" class="danger">Eliminar</button></td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+$('routeList').addEventListener('click', e => {
+  const btn = e.target.closest('[data-delroute]');
+  if (!btn) return;
+  delete routes[btn.dataset.delroute];
+  activeRouteKey = null;
+  syncCurrentMap();
+  renderRoutes();
+  renderRouteList();
+  autoSave();
+  showToast('Recorrido eliminado', 'success');
+});
+
+/* ═══════════════════════════════════════════════
+   Rendering — Map list (admin)
+   ═══════════════════════════════════════════════ */
+function renderMapList() {
+  const el = $('mapList');
+  el.innerHTML = '';
+  const frag = document.createDocumentFragment();
+
+  Object.values(maps).forEach(m => {
+    const c = document.createElement('div');
+    c.className = 'space-card';
+    const isActive = m.id === currentMapId;
+    const spaceCount = Object.keys(m.spaces || {}).length;
+    const routeCount = Object.keys(m.routes || {}).length;
+    c.innerHTML = `
+      <div class="row">
+        <strong>${escHtml(mapLabel(m))}</strong>
+        <span class="small">${isActive ? '● Activo' : ''}</span>
+      </div>
+      <div class="small" style="margin-top:4px">${spaceCount} espacios · ${routeCount} recorridos</div>
+      <div class="row" style="margin-top:7px">
+        <button type="button" data-map="${m.id}" class="${isActive ? 'active' : ''}">Usar este mapa</button>
+      </div>`;
+    frag.appendChild(c);
+  });
+
+  el.appendChild(frag);
+}
+
+$('mapList').addEventListener('click', e => {
+  const btn = e.target.closest('[data-map]');
+  if (btn) loadMap(btn.dataset.map);
+});
+
+/* ═══════════════════════════════════════════════
+   Rendering — User map select
+   ═══════════════════════════════════════════════ */
+function updateUserMaps() {
+  const sel = $('userMap');
+  const old = currentMapId;
+  sel.innerHTML = Object.values(maps)
+    .map(m => `<option value="${m.id}">${escHtml(mapLabel(m))}</option>`)
+    .join('');
+  if (maps[old]) sel.value = old;
+}
+
+/* ═══════════════════════════════════════════════
+   Master render
+   ═══════════════════════════════════════════════ */
+function renderAll() {
+  renderSpaceList();
+  updateSelects();
+  renderPoints();
+  renderRoutes();
+  renderRouteList();
+  renderMapList();
+  updateUserMaps();
+  renderLinkList();
+  $('selectedInfo').textContent = `Espacio ${selectedSpace}: ${label(selectedSpace)}`;
+}
+
+/* ═══════════════════════════════════════════════
+   Mode switching
+   ═══════════════════════════════════════════════ */
+function setMode(next) {
+  if (next === 'admin' && !adminUnlocked) return openLogin();
+  mode = next;
+  $('adminMode').classList.toggle('active', next === 'admin');
+  $('userMode').classList.toggle('active', next === 'user');
+  $('adminUI').classList.toggle('hidden', next !== 'admin');
+  $('userUI').classList.toggle('hidden', next !== 'user');
+  activeRouteKey = null;
+  drawing = null;
+  userRouteActive = false;
+  userRouteFrom = null;
+  userRouteTo = null;
+  crossMapSteps = null;
+  $('cancelUserRoute').classList.add('hidden');
+  $('crossMapNav').classList.add('hidden');
+  renderAll();
+  if (next === 'user') $('userStatus').textContent = 'Elegí edificio, nivel, origen y destino.';
+}
+
+function setAdminSubmode(sub) {
+  adminSubmode = sub;
+  const btnIds = { maps: 'mapsMode', spaces: 'pointsMode', routes: 'routesMode' };
+  const panelIds = { maps: 'mapsPanel', spaces: 'spacesPanel', routes: 'routesPanel' };
+  Object.entries(btnIds).forEach(([k, id]) => $(id).classList.toggle('active', k === sub));
+  Object.entries(panelIds).forEach(([k, id]) => $(id).classList.toggle('hidden', k !== sub));
+  drawing = null;
+  renderAll();
+}
+
+/* ═══════════════════════════════════════════════
+   Login
+   ═══════════════════════════════════════════════ */
+function openLogin() {
+  $('loginModal').classList.remove('hidden');
+  $('adminUser').focus();
+}
+
+function closeLogin() {
+  $('loginModal').classList.add('hidden');
+  $('loginStatus').classList.add('hidden');
+  $('adminUser').value = '';
+  $('adminPass').value = '';
+}
+
+function doLogin() {
+  const u = $('adminUser').value;
+  const p = $('adminPass').value;
+  const ok = ADMIN_ACCOUNTS.some(a => a.user === u && a.pass === p);
+  if (!ok) {
+    const st = $('loginStatus');
+    st.textContent = 'Usuario o contraseña incorrectos.';
+    st.className = 'status status-error';
+    st.classList.remove('hidden');
+    return;
+  }
+  adminUnlocked = true;
+  $('adminMode').classList.remove('hidden');
+  closeLogin();
+  setMode('admin');
+  showToast('Sesión de administrador iniciada', 'success');
+}
+
+/* ═══════════════════════════════════════════════
+   Stage click — place points / draw routes
+   ═══════════════════════════════════════════════ */
+stage.addEventListener('click', e => {
+  if (e.target.closest('.point')) return; // handled by delegation above
+  if (mode !== 'admin') return;
+
+  const p = screenToMap(e);
+
+  if (adminSubmode === 'spaces') {
+    if (!spaces[selectedSpace]) return;
+    spaces[selectedSpace].x = p.x;
+    spaces[selectedSpace].y = p.y;
+    syncCurrentMap();
+    renderPoints();
+    renderSpaceList();
+    autoSave();
+
+    // Pulse animation
+    requestAnimationFrame(() => {
+      const btn = overlay.querySelector(`[data-space="${selectedSpace}"]`);
+      if (btn) { btn.classList.add('just-placed'); setTimeout(() => btn.classList.remove('just-placed'), 600); }
+    });
+  } else if (adminSubmode === 'routes' && drawing) {
+    drawing.path.push(p);
+    renderRoutes();
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   Event bindings — Buttons
+   ═══════════════════════════════════════════════ */
+$('adminAccess').onclick = openLogin;
+$('cancelLogin').onclick = closeLogin;
+$('loginBtn').onclick = doLogin;
+$('adminPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+$('adminMode').onclick = () => setMode('admin');
+$('userMode').onclick = () => setMode('user');
+$('mapsMode').onclick = () => setAdminSubmode('maps');
+$('pointsMode').onclick = () => setAdminSubmode('spaces');
+$('routesMode').onclick = () => setAdminSubmode('routes');
+
+$('applyCount').onclick = () => ensureSpaces($('spaceCount').value);
+
+$('userMap').onchange = e => loadMap(e.target.value);
+
+/* ── Route drawing controls ── */
+$('newRoute').onclick = () => {
+  const a = +$('routeFrom').value, b = +$('routeTo').value;
+  if (a === b) return showToast('Origen y destino deben ser diferentes.', 'error');
+  if (spaces[a]?.x == null || spaces[b]?.x == null) return showToast('Primero colocá ambos espacios sobre el plano.', 'error');
+
+  drawing = { a, b, path: [{ x: spaces[a].x, y: spaces[a].y }] };
+  $('routeStatus').textContent = `Dibujando: ${label(a)} → ${label(b)}. Hacé clics siguiendo el camino.`;
+  $('routeStatus').className = 'status status-warn';
+  ['finishRoute', 'undoRoute', 'cancelRoute'].forEach(id => $(id).classList.remove('hidden'));
+  $('newRoute').classList.add('hidden');
+  renderRoutes();
+};
+
+$('finishRoute').onclick = () => {
+  if (!drawing) return;
+  const end = spaces[drawing.b];
+  const last = drawing.path.at(-1);
+  if (Math.hypot(last.x - end.x, last.y - end.y) > Math.max(18, mapW * .012)) {
+    return showToast('Hacé clic sobre el punto de destino para terminar.', 'error');
+  }
+  drawing.path[drawing.path.length - 1] = { x: end.x, y: end.y };
+  routes[routeKey(drawing.a, drawing.b)] = drawing.path.slice();
+  const a = drawing.a, b = drawing.b;
+  drawing = null;
+  activeRouteKey = routeKey(a, b);
+  syncCurrentMap();
+  ['finishRoute', 'undoRoute', 'cancelRoute'].forEach(id => $(id).classList.add('hidden'));
+  $('newRoute').classList.remove('hidden');
+  $('routeStatus').textContent = `✓ Recorrido guardado: ${label(a)} → ${label(b)}`;
+  $('routeStatus').className = 'status status-ok';
+  renderAll();
+  autoSave();
+  showToast('Recorrido guardado', 'success');
+};
+
+$('undoRoute').onclick = () => {
+  if (drawing?.path?.length > 1) { drawing.path.pop(); renderRoutes(); }
+};
+
+$('cancelRoute').onclick = () => {
+  drawing = null;
+  ['finishRoute', 'undoRoute', 'cancelRoute'].forEach(id => $(id).classList.add('hidden'));
+  $('newRoute').classList.remove('hidden');
+  $('routeStatus').textContent = 'Recorrido cancelado.';
+  $('routeStatus').className = 'status';
+  renderRoutes();
+};
+
+/* ═══════════════════════════════════════════════
+   Route Display & Navigation (Single & Cross-Map)
+   ═══════════════════════════════════════════════ */
+function startSingleMapRoute(a, b) {
+  userRouteActive = true;
+  userRouteFrom = a;
+  userRouteTo = b;
+  activeRouteKey = routeKey(a, b);
+
+  const exists = !!routes[activeRouteKey];
+  const st = $('userStatus');
+  if (exists) {
+    st.textContent = `📍 ${mapLabel(currentMap())}: ${label(a)} → ${label(b)}`;
+    st.className = 'status status-ok';
+  } else {
+    st.textContent = `⚠️ No hay un recorrido configurado entre ${label(a)} y ${label(b)}.`;
+    st.className = 'status status-warn';
+    activeRouteKey = null;
+  }
+  $('cancelUserRoute').classList.remove('hidden');
+  renderPoints();
+  renderRoutes();
+}
+
+function findCrossMapRoute(startMapId, startSpace, endMapId, endSpace) {
+  const startMap = maps[startMapId];
+  const endMap = maps[endMapId];
+  if (!startMap || !endMap) return null;
+
+  // BFS search across map links
+  const queue = [{
+    mapId: startMapId,
+    space: startSpace,
+    history: []
+  }];
+  const visited = new Set([`${startMapId}:${startSpace}`]);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current.mapId === endMapId) {
+      return {
+        legs: current.history,
+        finalLeg: {
+          mapId: endMapId,
+          from: current.space,
+          to: endSpace
+        }
+      };
+    }
+
+    const curMap = maps[current.mapId];
+    const curLinks = curMap?.links || [];
+
+    for (const link of curLinks) {
+      const visitKey = `${link.targetMapId}:${link.targetSpace}`;
+      if (!visited.has(visitKey)) {
+        visited.add(visitKey);
+        queue.push({
+          mapId: link.targetMapId,
+          space: link.targetSpace,
+          history: [
+            ...current.history,
+            {
+              mapId: current.mapId,
+              from: current.space,
+              to: link.localSpace,
+              targetMapId: link.targetMapId,
+              targetSpace: link.targetSpace
+            }
+          ]
+        });
+      }
+    }
+  }
+  return null;
+}
+
+function startCrossMapRoute(origSpace, targetMapId, targetDestSpace) {
+  const result = findCrossMapRoute(currentMapId, origSpace, targetMapId, targetDestSpace);
+  const targetMap = maps[targetMapId];
+  const targetSpaceName = targetMap?.spaces?.[targetDestSpace]?.name || `Espacio ${targetDestSpace}`;
+
+  if (!result || !result.legs.length) {
+    const st = $('userStatus');
+    st.textContent = `⚠️ No hay conexiones (escaleras/pasillos) configuradas entre ${mapLabel(currentMap())} y ${mapLabel(targetMap)}.`;
+    st.className = 'status status-warn';
+    $('cancelUserRoute').classList.remove('hidden');
+    $('crossMapNav').classList.add('hidden');
+    return;
+  }
+
+  crossMapSteps = [];
+  result.legs.forEach(leg => {
+    crossMapSteps.push({
+      mapId: leg.mapId,
+      from: leg.from,
+      to: leg.to,
+      transferToMapId: leg.targetMapId,
+      transferToSpace: leg.targetSpace,
+      isTransfer: true
+    });
+  });
+  crossMapSteps.push({
+    mapId: result.finalLeg.mapId,
+    from: result.finalLeg.from,
+    to: result.finalLeg.to,
+    isTransfer: false
+  });
+
+  crossMapStep = 0;
+  showCrossMapStep(0);
+}
+
+function showCrossMapStep(stepIndex) {
+  if (!crossMapSteps || !crossMapSteps[stepIndex]) return;
+  crossMapStep = stepIndex;
+  const step = crossMapSteps[stepIndex];
+  const total = crossMapSteps.length;
+
+  if (currentMapId !== step.mapId) {
+    loadMap(step.mapId);
+  }
+
+  userRouteActive = true;
+  userRouteFrom = step.from;
+  userRouteTo = step.to;
+  activeRouteKey = routeKey(step.from, step.to);
+
+  const exists = !!routes[activeRouteKey];
+  const st = $('userStatus');
+  const cm = currentMap();
+
+  let msg = `📍 Tramo ${stepIndex + 1} de ${total} [${mapLabel(cm)}]: ${label(step.from)} → ${label(step.to)}`;
+  if (step.isTransfer) {
+    const nextMap = maps[step.transferToMapId];
+    msg += ` (🔗 Pasar a ${mapLabel(nextMap)})`;
+  }
+  if (!exists) {
+    msg += ` ⚠️ (No hay recorrido trazado en este plano)`;
+    st.className = 'status status-warn';
+  } else {
+    st.className = 'status status-ok';
+  }
+  st.textContent = msg;
+
+  const nav = $('crossMapNav');
+  nav.classList.remove('hidden');
+  const info = $('crossMapInfo');
+  info.innerHTML = `<strong>Recorrido entre niveles (Tramo ${stepIndex + 1}/${total}):</strong> ${step.isTransfer ? `Al llegar a <strong>${label(step.to)}</strong>, pasar a <strong>${mapLabel(maps[step.transferToMapId])}</strong>.` : '¡Llegada al destino final!'}`;
+
+  const prevBtn = $('crossMapPrev');
+  const nextBtn = $('crossMapNext');
+
+  prevBtn.classList.toggle('hidden', stepIndex === 0);
+  nextBtn.classList.toggle('hidden', stepIndex === total - 1);
+
+  if (stepIndex > 0) {
+    prevBtn.textContent = `← Tramo anterior (${mapLabel(maps[crossMapSteps[stepIndex - 1].mapId])})`;
+  }
+  if (stepIndex < total - 1) {
+    nextBtn.textContent = `Siguiente tramo (${mapLabel(maps[crossMapSteps[stepIndex + 1].mapId])}) →`;
+  }
+
+  $('cancelUserRoute').classList.remove('hidden');
+  renderPoints();
+  renderRoutes();
+}
+
+/* ── User: show route ── */
+$('showRoute').onclick = () => {
+  const a = +$('userFrom').value;
+  const toVal = $('userTo').value;
+
+  if (!a || !toVal) {
+    return showToast('Seleccioná origen y destino.', 'error');
+  }
+
+  if (toVal.startsWith('ext:')) {
+    const parts = toVal.split(':');
+    const targetMapId = parts[1];
+    const targetSpace = +parts[2];
+    startCrossMapRoute(a, targetMapId, targetSpace);
+  } else {
+    const b = +toVal;
+    if (a === b) {
+      return showToast('El origen y el destino deben ser diferentes.', 'error');
+    }
+    crossMapSteps = null;
+    $('crossMapNav').classList.add('hidden');
+    startSingleMapRoute(a, b);
+  }
+};
+
+/* ── User: cancel route ── */
+$('cancelUserRoute').onclick = () => {
+  userRouteActive = false;
+  userRouteFrom = null;
+  userRouteTo = null;
+  activeRouteKey = null;
+  crossMapSteps = null;
+  $('cancelUserRoute').classList.add('hidden');
+  $('crossMapNav').classList.add('hidden');
+  $('userStatus').textContent = 'Elegí edificio, nivel, origen y destino.';
+  $('userStatus').className = 'status';
+  renderPoints();
+  renderRoutes();
+};
+
+/* ── Cross-map step navigation ── */
+$('crossMapPrev').onclick = () => {
+  if (crossMapSteps && crossMapStep > 0) {
+    showCrossMapStep(crossMapStep - 1);
+  }
+};
+$('crossMapNext').onclick = () => {
+  if (crossMapSteps && crossMapStep < crossMapSteps.length - 1) {
+    showCrossMapStep(crossMapStep + 1);
+  }
+};
+
+/* ── Admin: Cross-map link creation & deletion ── */
+$('linkTargetMap').onchange = () => updateLinkTargetSpaces();
+
+$('addLink').onclick = () => {
+  const localSpace = +$('linkLocalSpace').value;
+  const targetMapId = $('linkTargetMap').value;
+  const targetSpace = +$('linkTargetSpace').value;
+
+  if (!localSpace || !targetMapId || !targetSpace) {
+    return showToast('Seleccioná el espacio local, mapa destino y espacio destino.', 'error');
+  }
+  const cm = currentMap();
+  if (!cm.links) cm.links = [];
+
+  const exists = cm.links.some(l => l.localSpace === localSpace && l.targetMapId === targetMapId && l.targetSpace === targetSpace);
+  if (exists) return showToast('Esta conexión ya existe.', 'error');
+
+  // Add forward link
+  cm.links.push({ localSpace, targetMapId, targetSpace });
+
+  // Add reciprocal link in target map
+  const tm = maps[targetMapId];
+  if (tm) {
+    if (!tm.links) tm.links = [];
+    const recExists = tm.links.some(l => l.localSpace === targetSpace && l.targetMapId === currentMapId && l.targetSpace === localSpace);
+    if (!recExists) {
+      tm.links.push({ localSpace: targetSpace, targetMapId: currentMapId, targetSpace: localSpace });
+    }
+  }
+
+  syncCurrentMap();
+  renderPoints();
+  renderLinkList();
+  autoSave();
+  showToast('Conexión bidireccional creada', 'success');
+};
+
+$('linkList').addEventListener('click', e => {
+  const btn = e.target.closest('[data-dellink]');
+  if (!btn) return;
+  const idx = +btn.dataset.dellink;
+  const cm = currentMap();
+  const link = cm.links[idx];
+  if (!link) return;
+
+  // Remove reciprocal link in target map
+  const tm = maps[link.targetMapId];
+  if (tm?.links) {
+    tm.links = tm.links.filter(l => !(l.localSpace === link.targetSpace && l.targetMapId === currentMapId && l.targetSpace === link.localSpace));
+  }
+
+  cm.links.splice(idx, 1);
+  syncCurrentMap();
+  renderPoints();
+  renderLinkList();
+  autoSave();
+  showToast('Conexión eliminada', 'success');
+});
+
+/* ── Map management ── */
+$('addMap').onclick = () => {
+  const building = $('mapBuilding').value.trim();
+  const level = $('mapLevel').value.trim();
+  const file = $('mapSvgFile').files[0];
+  if (!building || !level) return showToast('Indicá edificio y nivel.', 'error');
+  if (!file) return showToast('Seleccioná un archivo SVG.', 'error');
+
+  const r = new FileReader();
+  r.onload = () => {
+    const text = r.result;
+    const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+    const svg = doc.documentElement;
+    if (!svg || svg.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) {
+      return showToast('El archivo no es un SVG válido.', 'error');
+    }
+    const vb = svg.getAttribute('viewBox') || `0 0 ${parseFloat(svg.getAttribute('width')) || 1600} ${parseFloat(svg.getAttribute('height')) || 1002}`;
+    const id = `map-${building.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}-${level.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
+    maps[id] = {
+      id, building, level, svg: text, viewBox: vb,
+      spaces: maps[id]?.spaces || {},
+      routes: maps[id]?.routes || {}
+    };
+    loadMap(id);
+    setAdminSubmode('maps');
+    $('mapSvgFile').value = '';
+    showToast(`Mapa "${building} — ${level}" agregado`, 'success');
+  };
+  r.readAsText(file);
+};
+
+$('deleteMap').onclick = () => {
+  if (Object.keys(maps).length <= 1) return showToast('Debe quedar al menos un mapa.', 'error');
+  if (!confirm(`¿Eliminar ${mapLabel(currentMap())}?`)) return;
+  const name = mapLabel(currentMap());
+  delete maps[currentMapId];
+  loadMap(Object.keys(maps)[0]);
+  showToast(`Mapa "${name}" eliminado`, 'success');
+};
+
+/* ── Save / Load / Clear ── */
+async function saveToServer(silent = false) {
+  try {
+    syncCurrentMap();
+    const data = { version: 3, updatedAt: Date.now(), maps, currentMapId };
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (result.error === 'storage_missing') {
+        showToast(result.message, 'error', 7000);
+        // Descargar copia local para no perder el trabajo
+        $('save').click();
+        return false;
+      }
+      throw new Error(result.error || `HTTP ${res.status}`);
+    }
+    autoSave();
+    if (!silent) {
+      const storageName = result.storage === 'vercel-blob' ? 'Vercel Blob' : result.storage === 'vercel-kv' ? 'Vercel KV' : 'el servidor';
+      showToast(`✓ Guardado en ${storageName} para todos los usuarios`, 'success', 3500);
+    }
+    return true;
+  } catch (err) {
+    if (!silent) {
+      showToast('No se pudo conectar con el servidor. Podés usar "Descargar copia" para guardar manualmente.', 'error', 4500);
+    }
+    return false;
+  }
+}
+
+$('saveServer').onclick = () => saveToServer(false);
+
+$('save').onclick = () => {
+  syncCurrentMap();
+  const data = { version: 3, updatedAt: Date.now(), maps, currentMapId };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Descargado "config.json". Reemplazalo en tu servidor/hosting para publicar.', 'success', 5000);
+};
+
+$('reloadRemote').onclick = async () => {
+  try {
+    let res = await fetch('/api/config?v=' + Date.now(), { cache: 'no-store' }).catch(() => null);
+    if (!res || !res.ok) {
+      res = await fetch('./config.json?v=' + Date.now(), { cache: 'no-store' });
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    if (d.maps && Object.keys(d.maps).length) {
+      maps = d.maps;
+      currentMapId = d.currentMapId || Object.keys(maps)[0];
+      loadMap(currentMapId);
+      autoSave();
+      showToast('Configuración oficial recargada con éxito', 'success');
+    } else {
+      throw new Error('Estructura inválida en la configuración');
+    }
+  } catch (err) {
+    showToast('No se pudo cargar la configuración: ' + err.message, 'error', 4000);
+  }
+};
+
+$('load').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (d.maps) {
+        maps = d.maps;
+        currentMapId = d.currentMapId || Object.keys(maps)[0];
+        loadMap(currentMapId);
+        showToast('Configuración cargada', 'success');
+      } else if (d.spaces) {
+        // Backwards compatibility with v1/v2 format
+        maps = {
+          'map-default': {
+            id: 'map-default', building: 'Mapa actual', level: 'PB',
+            svg: DEFAULT_SVG, viewBox: DEFAULT_VB,
+            spaces: d.spaces, routes: d.routes || {}, links: []
+          }
+        };
+        currentMapId = 'map-default';
+        loadMap(currentMapId);
+        showToast('Configuración (formato anterior) cargada', 'success');
+      } else {
+        throw new Error('Invalid format');
+      }
+    } catch (err) {
+      showToast('Archivo de configuración inválido.', 'error');
+    }
+  };
+  r.readAsText(f);
+};
+
+$('clear').onclick = () => {
+  if (!confirm('¿Borrar todos los mapas, espacios, nombres y recorridos?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  maps = {};
+  const id = 'map-default';
+  maps[id] = { id, building: 'Primaria', level: 'PB', svg: DEFAULT_SVG, viewBox: DEFAULT_VB, spaces: {}, routes: {}, links: [] };
+  currentMapId = id;
+  loadMap(id);
+  ensureSpaces(8);
+  showToast('Todo borrado', 'success');
+};
+
+/* ═══════════════════════════════════════════════
+   Initialization — Loads remote config first
+   ═══════════════════════════════════════════════ */
+async function initApp() {
+  let remoteData = null;
+  try {
+    // 1. Probar endpoint de API (/api/config) en Vercel o servidor Node
+    let res = await fetch('/api/config?v=' + Date.now(), { cache: 'no-store' }).catch(() => null);
+    // 2. Fallback a archivo estático config.json
+    if (!res || !res.ok) {
+      res = await fetch('./config.json?v=' + Date.now(), { cache: 'no-store' }).catch(() => null);
+    }
+    if (res && res.ok) {
+      const d = await res.json();
+      if (d.maps && Object.keys(d.maps).length) {
+        remoteData = d;
+      }
+    }
+  } catch (e) {
+    // Normal cuando se ejecuta offline o vía protocolo file://
+  }
+
+  let localData = null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) localData = JSON.parse(raw);
+  } catch (e) {}
+
+  const remoteTime = remoteData?.updatedAt || (remoteData ? 1 : 0);
+  const localTime = localData?.updatedAt || 0;
+
+  // Si la configuración remota es más nueva o no hay local, manda la remota!
+  if (remoteData && remoteTime >= localTime) {
+    maps = remoteData.maps;
+    currentMapId = remoteData.currentMapId || Object.keys(maps)[0];
+    autoSave();
+  } else if (localData && localData.maps && Object.keys(localData.maps).length) {
+    maps = localData.maps;
+    currentMapId = localData.currentMapId || Object.keys(maps)[0];
+  } else if (remoteData) {
+    maps = remoteData.maps;
+    currentMapId = remoteData.currentMapId || Object.keys(maps)[0];
+    autoSave();
+  } else {
+    // Fallback por defecto si no hay nada
+    const id = 'map-default';
+    maps[id] = { id, building: 'Primaria', level: 'PB', svg: DEFAULT_SVG, viewBox: DEFAULT_VB, spaces: {}, routes: {}, links: [] };
+    currentMapId = id;
+  }
+
+  loadMap(currentMapId);
+  if (!Object.keys(spaces).length) ensureSpaces(8);
+  setAdminSubmode('maps');
+  setMode('user');
+}
+
+initApp();
+
+})();
+</script>
+</body>
+</html>
