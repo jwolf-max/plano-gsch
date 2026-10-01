@@ -1519,6 +1519,12 @@ $('deleteMap').onclick = () => {
 
 /* ── Save / Load / Clear ── */
 async function saveToServer(silent = false) {
+  // Si está abierto directamente como archivo local en el explorador
+  if (window.location.protocol === 'file:') {
+    showToast('Estás abriendo el archivo en local (file://). Para guardar en servidor, ejecutá "iniciar-servidor.bat" o abrilo desde tu URL de Vercel.', 'error', 6500);
+    return false;
+  }
+
   try {
     syncCurrentMap();
     const data = { version: 3, updatedAt: Date.now(), maps, currentMapId };
@@ -1531,11 +1537,10 @@ async function saveToServer(silent = false) {
     if (!res.ok) {
       if (result.error === 'storage_missing') {
         showToast(result.message, 'error', 7000);
-        // Descargar copia local para no perder el trabajo
         $('save').click();
         return false;
       }
-      throw new Error(result.error || `HTTP ${res.status}`);
+      throw new Error(result.error || `Error ${res.status}: ${res.statusText || 'Error en la petición'}`);
     }
     autoSave();
     if (!silent) {
@@ -1544,8 +1549,9 @@ async function saveToServer(silent = false) {
     }
     return true;
   } catch (err) {
+    console.error('Error al guardar en el servidor:', err);
     if (!silent) {
-      showToast('No se pudo conectar con el servidor. Podés usar "Descargar copia" para guardar manualmente.', 'error', 4500);
+      showToast(`No se pudo conectar con el servidor (${err.message}). Podés usar "Descargar copia" para guardar manualmente.`, 'error', 6000);
     }
     return false;
   }
