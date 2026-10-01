@@ -463,8 +463,10 @@ function syncCurrentMap() {
   if (!m.links) m.links = [];
 }
 
-function loadMap(id, preserveRoute = false) {
-  syncCurrentMap();
+function loadMap(id, preserveRoute = false, skipSync = false) {
+  if (!skipSync) {
+    syncCurrentMap();
+  }
   const m = maps[id];
   if (!m) return;
   currentMapId = id;
@@ -491,7 +493,25 @@ function loadMap(id, preserveRoute = false) {
   renderMapSvg(m.svg || DEFAULT_SVG, m.viewBox || DEFAULT_VB);
   renderAll();
   $('mapStatus').textContent = `Mapa activo: ${mapLabel(m)}`;
-  autoSave();
+}
+
+function applyConfiguration(data) {
+  if (!data || !data.maps || !Object.keys(data.maps).length) return false;
+  maps = data.maps;
+  currentMapId = data.currentMapId && maps[data.currentMapId] ? data.currentMapId : Object.keys(maps)[0];
+  const m = maps[currentMapId];
+  if (m) {
+    spaces = m.spaces || {};
+    routes = m.routes || {};
+    if (!m.links) m.links = [];
+  }
+  loadMap(currentMapId, false, true); // skipSync = true para no sobreescribir con datos viejos!
+
+  try {
+    const payload = { version: 3, updatedAt: data.updatedAt || Date.now(), maps, currentMapId };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {}
+  return true;
 }
 
 function renderMapSvg(markup, viewBox) {
@@ -1528,10 +1548,30 @@ async function saveToServer(silent = false) {
   try {
     syncCurrentMap();
     const data = { version: 3, updatedAt: Date.now(), maps, currentMapId };
+    const jsonStr = JSON.stringify(data);
+
+    let bodyToSend = jsonStr;
+    let headers = { 'Content-Type': 'application/json' };
+
+    // Si el payload es mayor a 500KB, comprimir con gzip para no superar el límite 413 de Vercel (4.5MB)
+    if (jsonStr.length > 500000 && typeof CompressionStream !== 'undefined') {
+      try {
+        const stream = new Blob([jsonStr]).stream().pipeThrough(new CompressionStream('gzip'));
+        const compressedBlob = await new Response(stream).blob();
+        bodyToSend = compressedBlob;
+        headers = {
+          'Content-Type': 'application/octet-stream',
+          'Content-Encoding': 'gzip'
+        };
+      } catch (cErr) {
+        console.warn('Compresión en cliente falló, enviando normal:', cErr);
+      }
+    }
+
     const res = await fetch('/api/config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      headers,
+      body: bodyToSend
     });
     const result = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -1579,11 +1619,7 @@ $('reloadRemote').onclick = async () => {
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json();
-    if (d.maps && Object.keys(d.maps).length) {
-      maps = d.maps;
-      currentMapId = d.currentMapId || Object.keys(maps)[0];
-      loadMap(currentMapId);
-      autoSave();
+    if (applyConfiguration(d)) {
       showToast('Configuración oficial recargada con éxito', 'success');
     } else {
       throw new Error('Estructura inválida en la configuración');
@@ -1601,27 +1637,24 @@ $('load').onchange = e => {
     try {
       const d = JSON.parse(r.result);
       if (d.maps) {
-        maps = d.maps;
-        currentMapId = d.currentMapId || Object.keys(maps)[0];
-        loadMap(currentMapId);
-        showToast('Configuración cargada', 'success');
+        applyConfiguration(d);
+        showToast('Configuración cargada con éxito', 'success');
       } else if (d.spaces) {
-        // Backwards compatibility with v1/v2 format
-        maps = {
+        // Compatibilidad con formatos antiguos v1/v2
+        const legacyMaps = {
           'map-default': {
             id: 'map-default', building: 'Mapa actual', level: 'PB',
             svg: DEFAULT_SVG, viewBox: DEFAULT_VB,
             spaces: d.spaces, routes: d.routes || {}, links: []
           }
         };
-        currentMapId = 'map-default';
-        loadMap(currentMapId);
-        showToast('Configuración (formato anterior) cargada', 'success');
+        applyConfiguration({ maps: legacyMaps, currentMapId: 'map-default' });
+        showToast('Configuración (formato anterior) cargada con éxito', 'success');
       } else {
-        throw new Error('Invalid format');
+        throw new Error('Formato inválido');
       }
     } catch (err) {
-      showToast('Archivo de configuración inválido.', 'error');
+      showToast('Archivo de configuración inválido: ' + err.message, 'error');
     }
   };
   r.readAsText(f);
@@ -1634,8 +1667,10 @@ $('clear').onclick = () => {
   const id = 'map-default';
   maps[id] = { id, building: 'Primaria', level: 'PB', svg: DEFAULT_SVG, viewBox: DEFAULT_VB, spaces: {}, routes: {}, links: [] };
   currentMapId = id;
-  loadMap(id);
+  spaces = {};
   ensureSpaces(8);
+  loadMap(id, false, true);
+  autoSave();
   showToast('Todo borrado', 'success');
 };
 
@@ -1645,9 +1680,7 @@ $('clear').onclick = () => {
 async function initApp() {
   let remoteData = null;
   try {
-    // 1. Probar endpoint de API (/api/config) en Vercel o servidor Node
     let res = await fetch('/api/config?v=' + Date.now(), { cache: 'no-store' }).catch(() => null);
-    // 2. Fallback a archivo estático config.json
     if (!res || !res.ok) {
       res = await fetch('./config.json?v=' + Date.now(), { cache: 'no-store' }).catch(() => null);
     }
@@ -1670,27 +1703,24 @@ async function initApp() {
   const remoteTime = remoteData?.updatedAt || (remoteData ? 1 : 0);
   const localTime = localData?.updatedAt || 0;
 
-  // Si la configuración remota es más nueva o no hay local, manda la remota!
   if (remoteData && remoteTime >= localTime) {
-    maps = remoteData.maps;
-    currentMapId = remoteData.currentMapId || Object.keys(maps)[0];
-    autoSave();
+    applyConfiguration(remoteData);
   } else if (localData && localData.maps && Object.keys(localData.maps).length) {
-    maps = localData.maps;
-    currentMapId = localData.currentMapId || Object.keys(maps)[0];
+    applyConfiguration(localData);
   } else if (remoteData) {
-    maps = remoteData.maps;
-    currentMapId = remoteData.currentMapId || Object.keys(maps)[0];
-    autoSave();
+    applyConfiguration(remoteData);
   } else {
-    // Fallback por defecto si no hay nada
+    // Solo cuando no existe absolutamente nada previo (primer uso en blanco)
     const id = 'map-default';
+    maps = {};
     maps[id] = { id, building: 'Primaria', level: 'PB', svg: DEFAULT_SVG, viewBox: DEFAULT_VB, spaces: {}, routes: {}, links: [] };
     currentMapId = id;
+    spaces = {};
+    ensureSpaces(8);
+    loadMap(id, false, true);
+    autoSave();
   }
 
-  loadMap(currentMapId);
-  if (!Object.keys(spaces).length) ensureSpaces(8);
   setAdminSubmode('maps');
   setMode('user');
 }
@@ -1701,3 +1731,4 @@ initApp();
 </script>
 </body>
 </html>
+
