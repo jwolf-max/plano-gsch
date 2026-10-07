@@ -2,7 +2,10 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+<meta name="theme-color" content="#182b55">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Mapa Goethe Schule</title>
 <style>
 :root {
@@ -56,10 +59,96 @@ button.success { background: var(--success); color: white; border-color: var(--s
 .hint { font-size: 14px; color: var(--muted); margin: 8px 2px 12px; line-height: 1.5; }
 
 /* ── Map area ── */
-.map { background: white; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; overflow: auto; box-shadow: var(--shadow-sm); }
-.stage { position: relative; width: 100%; max-width: 1000px; margin: auto; line-height: 0; }
-.stage > svg.base { display: block; width: 100%; height: auto; }
+.map {
+  position: relative;
+  background: #edf0f5;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  min-height: 400px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map.is-panning { cursor: grabbing; }
+.stage {
+  position: relative;
+  width: 100%;
+  max-width: 1000px;
+  margin: auto;
+  line-height: 0;
+  transform-origin: 0 0;
+  transition: transform .03s linear;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.stage > svg.base { display: block; width: 100%; height: auto; pointer-events: none; }
 .overlay { position: absolute; inset: 0; pointer-events: none; }
+
+/* Floating Map Controls (Zoom in, Zoom out, Reset) */
+.map-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 25;
+}
+.map-controls button {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(24, 43, 85, 0.12);
+  color: var(--blue);
+  font-size: 20px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  user-select: none;
+  transition: transform .15s, background .15s;
+}
+.map-controls button:active {
+  transform: scale(0.92);
+  background: #eef2f7;
+}
+
+/* Floating Active Map Floor Badge */
+.map-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 25;
+  background: rgba(24, 43, 85, 0.9);
+  backdrop-filter: blur(8px);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.map-badge::before {
+  content: '📍';
+  font-size: 12px;
+}
 
 /* ── Points ── */
 .point {
@@ -188,13 +277,191 @@ body.route-active .point::after,
 .toast.toast-error { background: var(--danger); }
 @keyframes toastIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-/* ── Responsive ── */
-@media (max-width: 720px) {
-  .grid { grid-template-columns: 1fr; }
-  .top { align-items: flex-start; }
-  h2 { font-size: 18px; }
-  .bar { flex-direction: column; align-items: stretch; }
-  .bar button, .bar label { width: 100%; }
+/* ── Responsive & Mobile Enhancements ── */
+@media (max-width: 768px) {
+  body {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app {
+    padding: 10px 12px;
+    max-width: 100%;
+  }
+
+  /* Header */
+  .top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .top h2 {
+    font-size: 20px;
+    text-align: center;
+    padding: 2px 0;
+  }
+  .mode-switch {
+    width: 100%;
+    display: flex;
+    box-shadow: var(--shadow-sm);
+  }
+  .mode-switch button {
+    flex: 1;
+    text-align: center;
+    padding: 10px 4px;
+    font-size: 14px;
+  }
+
+  /* Form inputs & selects on touch devices */
+  button, select, input[type=text], input[type=number], input[type=password] {
+    font-size: 16px !important; /* Previene auto-zoom molesto en Safari iOS */
+    min-height: 48px;
+    border-radius: 10px;
+  }
+  select {
+    width: 100%;
+    padding: 11px 12px;
+  }
+
+  /* Cards & Panels */
+  .panel {
+    padding: 14px 12px;
+    border-radius: 14px;
+    margin-bottom: 10px;
+  }
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .field label {
+    font-size: 13px;
+    margin-bottom: 5px;
+    color: var(--blue);
+  }
+
+  /* User Actions */
+  #showRoute {
+    width: 100%;
+    min-height: 52px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .3px;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(24, 43, 85, .25);
+  }
+  #cancelUserRoute {
+    width: 100%;
+    min-height: 48px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 12px;
+    margin-top: 6px;
+  }
+
+  /* Cross Map Multi-floor navigation */
+  #crossMapNav .row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  #crossMapNav button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  /* Map Container on Phone: Dedicated 58vh view */
+  .map {
+    height: 58vh;
+    min-height: 360px;
+    border-radius: 14px;
+  }
+  .map-controls {
+    top: 10px;
+    right: 10px;
+  }
+  .map-controls button {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+  .map-badge {
+    top: 10px;
+    left: 10px;
+    font-size: 12px;
+    padding: 5px 12px;
+  }
+
+  /* Points slightly refined for small screens */
+  .point {
+    min-width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  /* Admin toolbar & lists on mobile */
+  .bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .bar button, .bar label {
+    width: 100%;
+    min-height: 46px;
+    text-align: center;
+    justify-content: center;
+  }
+  .bar span { display: none; }
+
+  #adminUI .bar:first-child {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  #adminUI .bar:first-child button {
+    min-height: 42px;
+    padding: 8px 2px;
+    font-size: 13px;
+  }
+
+  .space-list {
+    grid-template-columns: 1fr;
+  }
+  .route-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  /* Toast Notification mobile bottom sheet */
+  .toast {
+    left: 12px;
+    right: 12px;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: auto;
+    text-align: center;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 15px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.3);
+  }
+
+  /* Modal Dialog */
+  .modal-card {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+  .modal-card .row {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .modal-card button {
+    width: 100%;
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  .map {
+    height: 72vh;
+  }
 }
 </style>
 </head>
@@ -292,15 +559,13 @@ body.route-active .point::after,
   <!-- ═══ USER UI ═══ -->
   <div id="userUI" class="panel">
     <div class="grid">
-      <div class="field"><label for="userMap">Edificio y nivel</label><select id="userMap"></select></div>
-      <div class="field"><label for="userFrom">¿Desde dónde?</label><select id="userFrom"></select></div>
-      <div class="field"><label for="userTo">¿Hasta dónde?</label><select id="userTo"></select></div>
-      <div class="field"><label>&nbsp;</label>
-        <div class="row">
-          <button id="showRoute" class="primary" type="button">Mostrar recorrido</button>
-          <button id="cancelUserRoute" class="danger hidden" type="button">✕ Cancelar recorrido</button>
-        </div>
-      </div>
+      <div class="field"><label for="userMap">🏢 Edificio y nivel</label><select id="userMap"></select></div>
+      <div class="field"><label for="userFrom">🟢 ¿Desde dónde? (Origen)</label><select id="userFrom"></select></div>
+      <div class="field"><label for="userTo">🔴 ¿Hasta dónde? (Destino)</label><select id="userTo"></select></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-direction:column">
+      <button id="showRoute" class="primary" type="button">🚶 Mostrar recorrido</button>
+      <button id="cancelUserRoute" class="danger hidden" type="button">✕ Cancelar recorrido</button>
     </div>
     <div id="userStatus" class="status">Elegí edificio, nivel, origen y destino.</div>
     <!-- Cross-map step indicator -->
@@ -329,7 +594,16 @@ body.route-active .point::after,
   </div>
 
   <!-- ═══ MAP STAGE ═══ -->
-  <div class="map">
+  <div class="map" id="mapContainer">
+    <!-- Floating Map Controls (Zoom in, Zoom out, Reset) -->
+    <div class="map-controls" aria-label="Controles del mapa">
+      <button type="button" id="zoomIn" title="Acercar mapa" aria-label="Acercar">+</button>
+      <button type="button" id="zoomOut" title="Alejar mapa" aria-label="Alejar">−</button>
+      <button type="button" id="zoomReset" title="Restablecer vista" aria-label="Restablecer vista">⟲</button>
+    </div>
+    <!-- Floating active map badge -->
+    <div class="map-badge" id="mapBadge">Plano activo</div>
+
     <div class="stage" id="stage">
       <!-- Default placeholder SVG — will be replaced when a real map is loaded -->
       <svg id="Layer_1" class="base" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1002">
@@ -362,6 +636,7 @@ const $ = id => document.getElementById(id);
 const stage = $('stage');
 const overlay = $('overlay');
 const routesLayer = $('routesLayer');
+const mapContainer = $('mapContainer');
 
 const STORAGE_KEY = 'gsch-plano-config-v3';
 const DEFAULT_SVG = $('Layer_1').outerHTML;
@@ -420,6 +695,213 @@ function screenToMap(ev) {
   };
 }
 function mapToPct(p) { return { x: p.x / mapW * 100, y: p.y / mapH * 100 }; }
+
+/* ═══════════════════════════════════════════════
+   Map Zoom & Pan (Touch & Mouse Navigation)
+   ═══════════════════════════════════════════════ */
+let zoomScale = 1;
+let panX = 0;
+let panY = 0;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4.5;
+let hasDragged = false;
+
+function applyMapTransform() {
+  if (!stage) return;
+  stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+  if (mapContainer) {
+    if (zoomScale > 1.02) mapContainer.classList.add('is-zoomed');
+    else mapContainer.classList.remove('is-zoomed');
+  }
+}
+
+function resetZoom() {
+  zoomScale = 1;
+  panX = 0;
+  panY = 0;
+  applyMapTransform();
+}
+
+function clampPan() {
+  if (zoomScale <= 1.02 || !mapContainer || !stage) {
+    panX = 0;
+    panY = 0;
+    return;
+  }
+  const cRect = mapContainer.getBoundingClientRect();
+  const sW = stage.offsetWidth * zoomScale;
+  const sH = stage.offsetHeight * zoomScale;
+  const minX = Math.min(0, cRect.width - sW);
+  const minY = Math.min(0, cRect.height - sH);
+  panX = clamp(panX, minX - 60, 60);
+  panY = clamp(panY, minY - 60, 60);
+}
+
+function zoomAtPoint(screenX, screenY, factor) {
+  if (!mapContainer) return;
+  const cRect = mapContainer.getBoundingClientRect();
+  const rx = screenX - cRect.left;
+  const ry = screenY - cRect.top;
+  const nextScale = clamp(zoomScale * factor, MIN_ZOOM, MAX_ZOOM);
+  if (Math.abs(nextScale - zoomScale) < 0.01) return;
+
+  panX = rx - (rx - panX) * (nextScale / zoomScale);
+  panY = ry - (ry - panY) * (nextScale / zoomScale);
+  zoomScale = nextScale;
+  clampPan();
+  applyMapTransform();
+}
+
+function zoomAtCenter(factor) {
+  if (!mapContainer) return;
+  const cRect = mapContainer.getBoundingClientRect();
+  zoomAtPoint(cRect.left + cRect.width / 2, cRect.top + cRect.height / 2, factor);
+}
+
+function initMapZoomPan() {
+  if (!mapContainer) return;
+
+  const btnIn = $('zoomIn');
+  const btnOut = $('zoomOut');
+  const btnReset = $('zoomReset');
+
+  if (btnIn) btnIn.onclick = e => { e.stopPropagation(); zoomAtCenter(1.35); };
+  if (btnOut) btnOut.onclick = e => { e.stopPropagation(); zoomAtCenter(0.74); };
+  if (btnReset) btnReset.onclick = e => { e.stopPropagation(); resetZoom(); };
+
+  // Mouse wheel zoom
+  mapContainer.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    zoomAtPoint(e.clientX, e.clientY, factor);
+  }, { passive: false });
+
+  // Mouse drag pan
+  let isMouseDown = false;
+  let mouseStartX = 0;
+  let mouseStartY = 0;
+
+  mapContainer.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (e.target.closest('.point') || e.target.closest('.map-controls')) return;
+    isMouseDown = true;
+    hasDragged = false;
+    mouseStartX = e.clientX - panX;
+    mouseStartY = e.clientY - panY;
+    mapContainer.classList.add('is-panning');
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!isMouseDown) return;
+    const nextPanX = e.clientX - mouseStartX;
+    const nextPanY = e.clientY - mouseStartY;
+    if (Math.hypot(nextPanX - panX, nextPanY - panY) > 5) {
+      hasDragged = true;
+    }
+    panX = nextPanX;
+    panY = nextPanY;
+    clampPan();
+    applyMapTransform();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isMouseDown) {
+      isMouseDown = false;
+      mapContainer.classList.remove('is-panning');
+      setTimeout(() => { hasDragged = false; }, 60);
+    }
+  });
+
+  // Touch gesture pan & pinch-to-zoom
+  let isTouching = false;
+  let touchStartDist = 0;
+  let touchStartScale = 1;
+  let touchStartPanX = 0;
+  let touchStartPanY = 0;
+  let touchStartMidX = 0;
+  let touchStartMidY = 0;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let lastTapTime = 0;
+
+  mapContainer.addEventListener('touchstart', e => {
+    if (e.target.closest('.point') || e.target.closest('.map-controls')) return;
+
+    if (e.touches.length === 1) {
+      isTouching = true;
+      hasDragged = false;
+      touchStartX = e.touches[0].clientX - panX;
+      touchStartY = e.touches[0].clientY - panY;
+      mapContainer.classList.add('is-panning');
+    } else if (e.touches.length === 2) {
+      isTouching = false;
+      hasDragged = true;
+      touchStartDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchStartScale = zoomScale;
+      touchStartPanX = panX;
+      touchStartPanY = panY;
+      const cRect = mapContainer.getBoundingClientRect();
+      touchStartMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - cRect.left;
+      touchStartMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - cRect.top;
+    }
+  }, { passive: true });
+
+  mapContainer.addEventListener('touchmove', e => {
+    if (isTouching && e.touches.length === 1) {
+      if (e.cancelable) e.preventDefault();
+      const nextPanX = e.touches[0].clientX - touchStartX;
+      const nextPanY = e.touches[0].clientY - touchStartY;
+      if (Math.hypot(nextPanX - panX, nextPanY - panY) > 5) {
+        hasDragged = true;
+      }
+      panX = nextPanX;
+      panY = nextPanY;
+      clampPan();
+      applyMapTransform();
+    } else if (e.touches.length === 2 && touchStartDist > 0) {
+      if (e.cancelable) e.preventDefault();
+      const currentDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const factor = currentDist / touchStartDist;
+      const nextScale = clamp(touchStartScale * factor, MIN_ZOOM, MAX_ZOOM);
+      panX = touchStartMidX - (touchStartMidX - touchStartPanX) * (nextScale / touchStartScale);
+      panY = touchStartMidY - (touchStartMidY - touchStartPanY) * (nextScale / touchStartScale);
+      zoomScale = nextScale;
+      clampPan();
+      applyMapTransform();
+    }
+  }, { passive: false });
+
+  mapContainer.addEventListener('touchend', e => {
+    if (isTouching) {
+      isTouching = false;
+      mapContainer.classList.remove('is-panning');
+      setTimeout(() => { hasDragged = false; }, 60);
+    }
+    touchStartDist = 0;
+
+    // Double tap to zoom toggle
+    if (e.changedTouches.length === 1 && !e.target.closest('.point') && !e.target.closest('.map-controls')) {
+      const now = Date.now();
+      if (now - lastTapTime < 320) {
+        const t = e.changedTouches[0];
+        if (zoomScale > 1.3) {
+          resetZoom();
+        } else {
+          zoomAtPoint(t.clientX, t.clientY, 2);
+        }
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+      }
+    }
+  });
+}
 
 /* ═══════════════════════════════════════════════
    Toast notifications
@@ -498,7 +980,10 @@ function loadMap(id, preserveRoute = false, skipSync = false) {
 
   renderMapSvg(m.svg || DEFAULT_SVG, m.viewBox || DEFAULT_VB);
   renderAll();
+  resetZoom();
   $('mapStatus').textContent = `Mapa activo: ${mapLabel(m)}`;
+  const badge = $('mapBadge');
+  if (badge) badge.textContent = mapLabel(m);
 }
 
 function applyConfiguration(data) {
@@ -1139,6 +1624,7 @@ function doLogin() {
 stage.addEventListener('click', e => {
   if (e.target.closest('.point')) return; // handled by delegation above
   if (mode !== 'admin') return;
+  if (hasDragged) return; // Si arrastró el mapa para desplazarse, ignorar clic
 
   const p = screenToMap(e);
 
@@ -1252,6 +1738,9 @@ function startSingleMapRoute(a, b) {
   $('cancelUserRoute').classList.remove('hidden');
   renderPoints();
   renderRoutes();
+  if (window.innerWidth <= 768 && mapContainer) {
+    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 function findCrossMapRoute(startMapId, startSpace, endMapId, endSpace) {
@@ -1397,6 +1886,9 @@ function showCrossMapStep(stepIndex) {
   $('cancelUserRoute').classList.remove('hidden');
   renderPoints();
   renderRoutes();
+  if (window.innerWidth <= 768 && mapContainer) {
+    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 /* ── User: show route ── */
@@ -1775,6 +2267,7 @@ async function initApp() {
     autoSave();
   }
 
+  initMapZoomPan();
   setAdminSubmode('maps');
   setMode('user');
 }
