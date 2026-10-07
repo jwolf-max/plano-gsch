@@ -16,6 +16,28 @@ module.exports = async function handler(req, res) {
   const hasBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
   const hasKV = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
+  // Acción especial: Generar token para subida directa desde el navegador (supera el límite de 4.5MB de Vercel)
+  const isUploadTokenReq = (req.query && req.query.action === 'upload-token') ||
+                           (req.body && typeof req.body === 'object' && req.body.action === 'upload-token');
+  if (isUploadTokenReq) {
+    if (!hasBlob) {
+      return res.status(400).json({ error: 'storage_missing', message: 'Vercel Blob no configurado en este proyecto' });
+    }
+    try {
+      const { generateClientTokenFromReadWriteToken } = require('@vercel/blob/client');
+      const clientToken = await generateClientTokenFromReadWriteToken({
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+        pathname: 'config.json',
+        maximumSizeInBytes: 100 * 1024 * 1024,
+        validUntil: Date.now() + 15 * 60 * 1000
+      });
+      return res.status(200).json({ clientToken });
+    } catch (err) {
+      console.error('Error generando clientToken:', err);
+      return res.status(500).json({ error: 'Error generando token: ' + err.message });
+    }
+  }
+
   // ─────────────────────────────────────────────
   // 1. GET: Obtener la configuración actual
   // ─────────────────────────────────────────────
@@ -30,12 +52,8 @@ module.exports = async function handler(req, res) {
             token: process.env.BLOB_READ_WRITE_TOKEN
           });
           if (blobs && blobs.length > 0) {
-            const blobRes = await fetch(blobs[0].url + '?v=' + Date.now(), { cache: 'no-store' });
-            if (blobRes.ok) {
-              const data = await blobRes.json();
-              res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-              return res.status(200).json(data);
-            }
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            return res.redirect(307, blobs[0].url + '?v=' + Date.now());
           }
         } catch (blobErr) {
           console.warn('Error leyendo Vercel Blob, probando siguiente opción:', blobErr.message);
@@ -170,4 +188,5 @@ module.exports = async function handler(req, res) {
 
   return res.status(405).json({ error: 'Método no permitido' });
 };
+
 
