@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Plano interactivo GSCH</title>
+<title>Mapa Goethe Schule</title>
 <style>
 :root {
   --blue: #182b55;
@@ -74,10 +74,10 @@ button.success { background: var(--success); color: white; border-color: var(--s
 .point:hover { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 4px 16px rgba(0,0,0,.35); z-index: 10; }
 .point.selected { background: var(--accent); }
 .point.drag { cursor: grabbing; }
-/* Tooltip */
+/* Tooltip suave y translúcido al pasar el cursor */
 .point::after {
   content: attr(data-name); position: absolute; bottom: calc(100% + 6px); left: 50%;
-  transform: translateX(-50%); background: rgba(24,43,85,.92); color: white;
+  transform: translateX(-50%); background: rgba(24,43,85,.75); backdrop-filter: blur(4px); color: white;
   padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 400;
   white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .2s;
 }
@@ -97,12 +97,17 @@ button.success { background: var(--success); color: white; border-color: var(--s
   background: var(--success); border-color: #b6f0cf; transform: translate(-50%,-50%) scale(1.15);
   animation: endpointPulse 1.8s ease-in-out infinite;
 }
-.point.point-origin::after { content: "📍 " attr(data-name) " (Inicio)"; opacity: 1; }
 .point.point-dest {
   background: var(--accent); border-color: #fdd; transform: translate(-50%,-50%) scale(1.15);
   animation: endpointPulse 1.8s ease-in-out .3s infinite;
 }
-.point.point-dest::after { content: "🏁 " attr(data-name) " (Destino)"; opacity: 1; }
+/* Ocultar popups flotantes sobre el mapa durante el recorrido para ver todo con total claridad */
+body.route-active .point::after,
+.point.point-origin::after,
+.point.point-dest::after,
+.point.point-hidden::after {
+  display: none !important;
+}
 @keyframes endpointPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(232,93,63,.5); }
   50% { box-shadow: 0 0 0 10px rgba(232,93,63,0); }
@@ -196,7 +201,7 @@ button.success { background: var(--success); color: white; border-color: var(--s
 <body>
 <div class="app">
   <div class="top">
-    <h2>Plano interactivo GSCH</h2>
+    <h2>Mapa Goethe Schule</h2>
     <div class="mode-switch" aria-label="Modo de visualización">
       <button id="userMode" class="active" type="button">Usuario</button>
       <button id="adminMode" class="hidden" type="button">Administrador</button>
@@ -479,6 +484,7 @@ function loadMap(id, preserveRoute = false, skipSync = false) {
 
   if (!preserveRoute) {
     userRouteActive = false;
+    document.body.classList.remove('route-active');
     userRouteFrom = null;
     userRouteTo = null;
     crossMapSteps = null;
@@ -626,7 +632,11 @@ function renderPoints() {
     d.textContent = n;
     d.dataset.space = n;
     d.dataset.name = label(n);
-    d.title = label(n);
+    if (mode === 'user' && userRouteActive) {
+      d.title = '';
+    } else {
+      d.title = label(n);
+    }
     d.setAttribute('aria-label', `Espacio ${n}: ${label(n)}`);
     d.style.left = q.x + '%';
     d.style.top = q.y + '%';
@@ -1070,6 +1080,7 @@ function setMode(next) {
   activeRouteKey = null;
   drawing = null;
   userRouteActive = false;
+  document.body.classList.remove('route-active');
   userRouteFrom = null;
   userRouteTo = null;
   crossMapSteps = null;
@@ -1223,6 +1234,7 @@ $('cancelRoute').onclick = () => {
    ═══════════════════════════════════════════════ */
 function startSingleMapRoute(a, b) {
   userRouteActive = true;
+  document.body.classList.add('route-active');
   userRouteFrom = a;
   userRouteTo = b;
   activeRouteKey = routeKey(a, b);
@@ -1338,10 +1350,11 @@ function showCrossMapStep(stepIndex) {
   const total = crossMapSteps.length;
 
   if (currentMapId !== step.mapId) {
-    loadMap(step.mapId);
+    loadMap(step.mapId, true);
   }
 
   userRouteActive = true;
+  document.body.classList.add('route-active');
   userRouteFrom = step.from;
   userRouteTo = step.to;
   activeRouteKey = routeKey(step.from, step.to);
@@ -1414,6 +1427,7 @@ $('showRoute').onclick = () => {
 /* ── User: cancel route ── */
 $('cancelUserRoute').onclick = () => {
   userRouteActive = false;
+  document.body.classList.remove('route-active');
   userRouteFrom = null;
   userRouteTo = null;
   activeRouteKey = null;
@@ -1550,10 +1564,50 @@ async function saveToServer(silent = false) {
     const data = { version: 3, updatedAt: Date.now(), maps, currentMapId };
     const jsonStr = JSON.stringify(data);
 
+    // 1. Intentar Subida Directa a Vercel Blob (bypasea el límite 413 de 4.5MB de Vercel, soporta hasta 100MB)
+    try {
+      const tokenRes = await fetch('/api/config?action=upload-token');
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json().catch(() => ({}));
+        if (tokenData && tokenData.clientToken) {
+          const blobUploadRes = await fetch('https://blob.vercel-storage.com/?pathname=config.json', {
+            method: 'PUT',
+            headers: {
+              'authorization': `Bearer ${tokenData.clientToken}`,
+              'x-api-version': '9',
+              'content-type': 'application/json',
+              'x-content-type': 'application/json'
+            },
+            body: jsonStr
+          });
+
+          if (blobUploadRes.ok) {
+            autoSave();
+            if (!silent) {
+              showToast('✓ Guardado en Vercel Blob para todos los usuarios', 'success', 3500);
+            }
+            return true;
+          } else {
+            console.warn('Subida directa a Blob retornó código no exitoso:', blobUploadRes.status);
+          }
+        }
+      } else {
+        const tokenErr = await tokenRes.json().catch(() => ({}));
+        if (tokenErr.error === 'storage_missing') {
+          showToast(tokenErr.message, 'error', 7000);
+          $('save').click();
+          return false;
+        }
+      }
+    } catch (directErr) {
+      console.warn('Subida directa a Blob no disponible, recurriendo a ruta estándar:', directErr);
+    }
+
+    // 2. Fallback: Envío estándar mediante /api/config (para servidor local o Vercel KV)
     let bodyToSend = jsonStr;
     let headers = { 'Content-Type': 'application/json' };
 
-    // Si el payload es mayor a 500KB, comprimir con gzip para no superar el límite 413 de Vercel (4.5MB)
+    // Si el payload es mayor a 500KB, comprimir con gzip
     if (jsonStr.length > 500000 && typeof CompressionStream !== 'undefined') {
       try {
         const stream = new Blob([jsonStr]).stream().pipeThrough(new CompressionStream('gzip'));
