@@ -21,6 +21,7 @@
   --shadow-md: 0 4px 12px rgba(0,0,0,.12);
   --radius: 12px;
   --radius-sm: 8px;
+  --sheet-h: calc(64px + env(safe-area-inset-bottom, 0px)); /* alto de la hoja inferior plegada (celular) */
 }
 * { box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; background: var(--bg); color: #182033; }
@@ -66,29 +67,30 @@ button.success { background: var(--success); color: white; border-color: var(--s
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  height: clamp(420px, 72vh, 820px);
   min-height: 400px;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .map.is-panning { cursor: grabbing; }
+/* El tamaño real (width/height) lo fija JS según el zoom: así el SVG se
+   vuelve a dibujar en alta resolución en lugar de estirar una imagen borrosa. */
 .stage {
-  position: relative;
-  width: 100%;
-  max-width: 1000px;
-  margin: auto;
+  --rot: 0deg;
+  --ps: 1;
+  position: absolute;
+  top: 0;
+  left: 0;
   line-height: 0;
   transform-origin: 0 0;
-  transition: transform .03s linear;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
-.stage > svg.base { display: block; width: 100%; height: auto; pointer-events: none; }
+.stage.rotated { --rot: 90deg; } /* el plano gira -90°: los puntos giran +90° para que los números se lean derechos */
+.stage > svg.base { display: block; width: 100%; height: 100%; pointer-events: none; }
 .overlay { position: absolute; inset: 0; pointer-events: none; }
 
 /* Floating Map Controls (Zoom in, Zoom out, Reset) */
@@ -124,6 +126,8 @@ button.success { background: var(--success); color: white; border-color: var(--s
   transform: scale(0.92);
   background: #eef2f7;
 }
+.map-controls button.rot { display: none; font-size: 13px; letter-spacing: -.3px; }
+.map-controls button.rot[aria-pressed="true"] { background: var(--blue); color: white; }
 
 /* Floating Active Map Floor Badge */
 .map-badge {
@@ -151,24 +155,35 @@ button.success { background: var(--success); color: white; border-color: var(--s
 }
 
 /* ── Points ── */
+/* --rot, --ps y --ms se heredan del .stage: --rot contra-rota el número cuando el plano
+   está girado, --ps compensa la escala transitoria durante el pellizco y --ms adapta el tamaño a la pantalla. */
 .point {
-  position: absolute; transform: translate(-50%, -50%);
+  --pt: translate(-50%, -50%) rotate(var(--rot, 0deg));
+  position: absolute; transform: var(--pt) scale(calc(var(--ps, 1) * var(--ms, 1)));
   min-width: 38px; height: 38px; padding: 0 8px; border-radius: 20px;
   border: 3px solid white; background: #081d58; color: white;
   font-weight: bold; font-size: 14px; display: grid; place-items: center;
   box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer;
   pointer-events: auto; user-select: none; white-space: nowrap; line-height: 1;
-  transition: transform .15s, background .2s, box-shadow .2s;
+  transition: background .2s, box-shadow .2s, opacity .35s;
 }
-.point:hover { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 4px 16px rgba(0,0,0,.35); z-index: 10; }
-.point.selected { background: var(--accent); }
+/* Área táctil expandida invisible (mínimo 44x44px para el dedo en celulares) */
+.point::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+.point:hover { transform: var(--pt) scale(calc(var(--ps, 1) * var(--ms, 1) * 1.12)); box-shadow: 0 4px 16px rgba(0,0,0,.35); z-index: 10; }
+.point.selected { background: var(--accent); z-index: 15; }
 .point.drag { cursor: grabbing; }
 /* Tooltip suave y translúcido al pasar el cursor */
 .point::after {
   content: attr(data-name); position: absolute; bottom: calc(100% + 6px); left: 50%;
-  transform: translateX(-50%); background: rgba(24,43,85,.75); backdrop-filter: blur(4px); color: white;
-  padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 400;
+  transform: translateX(-50%); background: rgba(24,43,85,.88); backdrop-filter: blur(4px); color: white;
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
   white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,.22);
 }
 .point:hover::after { opacity: 1; }
 
@@ -181,14 +196,14 @@ button.success { background: var(--success); color: white; border-color: var(--s
 .point.just-placed { animation: pointPulse .6s ease-out; }
 
 /* User route view: hide non-route points, highlight origin/dest */
-.point.point-hidden { opacity: 0; pointer-events: none; transform: translate(-50%,-50%) scale(.3); transition: opacity .35s, transform .35s; }
+.point.point-hidden { opacity: 0; pointer-events: none; transform: var(--pt) scale(calc(var(--ps, 1) * var(--ms, 1) * .3)); }
 .point.point-origin {
-  background: var(--success); border-color: #b6f0cf; transform: translate(-50%,-50%) scale(1.15);
-  animation: endpointPulse 1.8s ease-in-out infinite;
+  background: var(--success); border-color: #b6f0cf; transform: var(--pt) scale(calc(var(--ps, 1) * var(--ms, 1) * 1.15));
+  animation: endpointPulse 1.8s ease-in-out infinite; z-index: 16;
 }
 .point.point-dest {
-  background: var(--accent); border-color: #fdd; transform: translate(-50%,-50%) scale(1.15);
-  animation: endpointPulse 1.8s ease-in-out .3s infinite;
+  background: var(--accent); border-color: #fdd; transform: var(--pt) scale(calc(var(--ps, 1) * var(--ms, 1) * 1.15));
+  animation: endpointPulse 1.8s ease-in-out .3s infinite; z-index: 16;
 }
 /* Ocultar popups flotantes sobre el mapa durante el recorrido para ver todo con total claridad */
 body.route-active .point::after,
@@ -463,9 +478,398 @@ body.route-active .point::after,
     height: 72vh;
   }
 }
+
+/* ── Elementos exclusivos de la experiencia móvil (ocultos en desktop) ── */
+.sheet-toggle, .sheet-admin, .sheet-header-mobile, .sheet-backdrop,
+.mobile-fab, .point-popup, .mobile-route-hud { display: none; }
+
+/* ── Celular en modo usuario: el mapa ocupa el 100% real de la pantalla ── */
+@media (max-width: 768px), ((pointer: coarse) and (max-width: 1024px)), (max-height: 540px) {
+  .map-controls button.rot { display: grid; }
+
+  html:has(body.mode-user),
+  body.mode-user {
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    background: #f0f2f5;
+    position: fixed;
+    inset: 0;
+  }
+  body.mode-user .top { display: none !important; }
+  body.mode-user .app {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Mapa protagonista absoluto: 100% ancho y 100% alto de la pantalla disponible */
+  body.mode-user .map {
+    position: fixed;
+    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    z-index: 1;
+  }
+
+  /* Quitar bordes redondeados del fondo SVG en celular para cubrir de borde a borde */
+  body.mode-user .stage > svg.base > rect:first-child {
+    rx: 0;
+    ry: 0;
+  }
+
+  /* Controles flotantes compactos sobre las esquinas sin restar espacio al mapa */
+  body.mode-user .map-controls {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    right: calc(env(safe-area-inset-right, 0px) + 10px);
+    gap: 6px;
+    z-index: 25;
+  }
+  body.mode-user .map-controls button {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    border-radius: 11px;
+    font-size: 19px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  }
+  body.mode-user .map-controls button.rot {
+    font-size: 12px;
+  }
+
+  /* Insignia de piso compacta e interactiva (permite cambiar de piso/recorrido al tocarla) */
+  body.mode-user .map-badge {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    max-width: calc(100vw - 74px);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    font-size: 12px;
+    background: rgba(24, 43, 85, 0.86);
+    pointer-events: auto;
+    cursor: pointer;
+    user-select: none;
+  }
+  body.mode-user .map-badge::after {
+    content: '▾';
+    font-size: 11px;
+    opacity: .8;
+    margin-left: 2px;
+  }
+
+  /* Marcadores optimizados para pantallas pequeñas con buen área táctil y sin superponerse */
+  body.mode-user .point {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 6px;
+    font-size: 12px;
+    border-width: 2.5px;
+  }
+  body.mode-user .point.selected::after {
+    opacity: 1;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    background: rgba(24, 43, 85, 0.94);
+    z-index: 30;
+  }
+
+  /* Botón flotante discreto para abrir buscador de recorridos / pisos cuando se necesite */
+  body.mode-user .mobile-fab {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    right: calc(env(safe-area-inset-right, 0px) + 12px);
+    z-index: 26;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 42px;
+    min-height: 42px;
+    padding: 0 15px;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(24, 43, 85, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: white;
+    font-size: 13px !important;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(10, 20, 40, 0.26);
+    cursor: pointer;
+  }
+  body.mode-user.route-active .mobile-fab,
+  body.mode-user.sheet-open .mobile-fab,
+  body.mode-user.popup-open .mobile-fab {
+    display: none !important;
+  }
+
+  /* Popup emergente al tocar un espacio/ubicación directamente en el mapa */
+  body.mode-user .point-popup:not(.hidden) {
+    position: fixed;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    z-index: 35;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 28px rgba(10, 20, 40, 0.24);
+    border: 1px solid rgba(24, 43, 85, 0.1);
+    animation: sheetIn .18s ease-out;
+  }
+  .point-popup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .point-popup-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--blue);
+    min-width: 0;
+  }
+  .point-popup-badge {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    border-radius: 14px;
+    background: var(--blue);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+  .point-popup-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .point-popup-close {
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    border: 0 !important;
+    background: #eef1f6 !important;
+    color: var(--muted) !important;
+    font-size: 15px !important;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+  .point-popup-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .point-popup-actions button {
+    min-height: 42px !important;
+    padding: 8px 10px !important;
+    font-size: 14px !important;
+    font-weight: 700;
+    border-radius: 10px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+  .point-popup-actions button.btn-origin {
+    background: #e8f5e9;
+    color: #146c3b;
+    border-color: #b7e1c4;
+  }
+  .point-popup-actions button.btn-dest {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  /* Barra flotante compacta cuando hay un recorrido activo en celular */
+  body.mode-user.route-active .mobile-route-hud:not(.hidden) {
+    position: fixed;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    z-index: 34;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 15px;
+    background: rgba(24, 43, 85, 0.94);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: white;
+    box-shadow: 0 6px 24px rgba(10, 20, 40, 0.28);
+    animation: sheetIn .2s ease-out;
+  }
+  .mobile-route-hud-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .mobile-route-hud-text {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    min-width: 0;
+    flex: 1;
+  }
+  .mobile-route-hud-close {
+    min-height: 36px !important;
+    height: 36px !important;
+    padding: 0 12px !important;
+    border-radius: 9px !important;
+    background: rgba(255,255,255,0.16) !important;
+    border: 1px solid rgba(255,255,255,0.25) !important;
+    color: white !important;
+    font-size: 13px !important;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .mobile-route-hud-steps {
+    display: flex;
+    gap: 6px;
+  }
+  .mobile-route-hud-steps:empty { display: none; }
+  .mobile-route-hud-steps button {
+    flex: 1;
+    min-height: 38px !important;
+    padding: 6px 10px !important;
+    font-size: 13px !important;
+    font-weight: 700;
+    border-radius: 9px !important;
+    background: white !important;
+    color: var(--blue) !important;
+    border: 0 !important;
+  }
+
+  /* Fondo oscuro al abrir el panel de búsqueda en celular */
+  body.mode-user .sheet-backdrop.is-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 20, 40, 0.35);
+    z-index: 38;
+    animation: fadeIn .18s ease-out;
+  }
+
+  /* Panel de selectores: completamente oculto por defecto en celular para no quitar ni 1px al mapa */
+  body.mode-user #userUI {
+    display: none !important;
+  }
+  body.mode-user #userUI.is-open {
+    display: flex !important;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    margin: 0;
+    padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 8px);
+    border: 0;
+    border-radius: 20px 20px 0 0;
+    background: rgba(255, 255, 255, .98);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 -8px 34px rgba(10, 20, 40, .24);
+    max-height: 86dvh;
+    animation: sheetIn .22s ease-out;
+  }
+  body.mode-user .sheet-toggle { display: none !important; }
+  body.mode-user .sheet-header-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px 8px;
+    border-bottom: 1px solid #eef0f5;
+  }
+  body.mode-user .sheet-header-mobile strong {
+    font-size: 16px;
+    color: var(--blue);
+  }
+  body.mode-user .sheet-close-btn {
+    width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    border: 0 !important;
+    background: #eef1f6 !important;
+    color: var(--muted) !important;
+    font-size: 16px !important;
+    display: grid;
+    place-items: center;
+  }
+  body.mode-user .sheet-body {
+    display: block;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 10px 16px 12px;
+  }
+  @keyframes sheetIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+  body.mode-user .sheet-admin {
+    display: block;
+    width: 100%;
+    margin-top: 12px;
+    min-height: 44px;
+    background: transparent;
+    border: 1px dashed #c9ced8;
+    color: var(--muted);
+    font-size: 14px !important;
+  }
+
+  body.mode-user .toast {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
+  }
+}
 </style>
 </head>
-<body>
+<body class="mode-user">
 <div class="app">
   <div class="top">
     <h2>Mapa Goethe Schule</h2>
@@ -557,7 +961,19 @@ body.route-active .point::after,
   </div>
 
   <!-- ═══ USER UI ═══ -->
+  <!-- En celulares permanece oculto por defecto para dejar el 100% de la pantalla al mapa -->
+  <div id="sheetBackdrop" class="sheet-backdrop" aria-hidden="true"></div>
   <div id="userUI" class="panel">
+    <button id="sheetToggle" class="sheet-toggle" type="button" aria-expanded="false" aria-controls="sheetBody">
+      <span class="sheet-handle" aria-hidden="true"></span>
+      <span class="sheet-title" id="sheetTitle">🚶 ¿A dónde querés ir?</span>
+      <span class="sheet-sub" id="sheetSub">Tocá para elegir origen y destino</span>
+    </button>
+    <div class="sheet-header-mobile">
+      <strong>🧭 Buscar recorrido o cambiar piso</strong>
+      <button id="sheetClose" class="sheet-close-btn" type="button" aria-label="Cerrar panel">✕</button>
+    </div>
+    <div class="sheet-body" id="sheetBody">
     <div class="grid">
       <div class="field"><label for="userMap">🏢 Edificio y nivel</label><select id="userMap"></select></div>
       <div class="field"><label for="userFrom">🟢 ¿Desde dónde? (Origen)</label><select id="userFrom"></select></div>
@@ -575,6 +991,8 @@ body.route-active .point::after,
         <button id="crossMapPrev" class="hidden" type="button">← Mapa anterior</button>
         <button id="crossMapNext" class="hidden primary" type="button">Mapa siguiente →</button>
       </div>
+    </div>
+    <button id="sheetAdmin" class="sheet-admin" type="button">🔒 Acceso administrador</button>
     </div>
   </div>
 
@@ -600,13 +1018,41 @@ body.route-active .point::after,
       <button type="button" id="zoomIn" title="Acercar mapa" aria-label="Acercar">+</button>
       <button type="button" id="zoomOut" title="Alejar mapa" aria-label="Alejar">−</button>
       <button type="button" id="zoomReset" title="Restablecer vista" aria-label="Restablecer vista">⟲</button>
+      <button type="button" id="zoomRotate" class="rot" title="Girar plano 90°" aria-label="Girar plano" aria-pressed="false">↻90°</button>
     </div>
     <!-- Floating active map badge -->
-    <div class="map-badge" id="mapBadge">Plano activo</div>
+    <div class="map-badge" id="mapBadge" role="button" tabindex="0" title="Cambiar piso o buscar recorrido">Plano activo</div>
+
+    <!-- Botón flotante discreto (solo celular) para buscar recorridos o cambiar de piso -->
+    <button type="button" id="mobileFab" class="mobile-fab" aria-label="Buscar recorrido o cambiar piso">🧭 Ir a...</button>
+
+    <!-- Popup emergente (solo celular) al seleccionar una ubicación en el mapa -->
+    <div id="pointPopup" class="point-popup hidden" role="dialog" aria-label="Información del espacio">
+      <div class="point-popup-head">
+        <div class="point-popup-title">
+          <span id="popupSpaceNum" class="point-popup-badge">1</span>
+          <span id="popupSpaceName" class="point-popup-name">Espacio</span>
+        </div>
+        <button type="button" id="popupClose" class="point-popup-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="point-popup-actions">
+        <button type="button" id="popupSetOrigin" class="btn-origin">🟢 Desde aquí</button>
+        <button type="button" id="popupSetDest" class="btn-dest">🔴 Ir aquí</button>
+      </div>
+    </div>
+
+    <!-- Barra flotante de recorrido activo (solo celular) -->
+    <div id="mobileRouteHud" class="mobile-route-hud hidden" aria-live="polite">
+      <div class="mobile-route-hud-main">
+        <div id="mobileRouteText" class="mobile-route-hud-text">Recorrido activo</div>
+        <button type="button" id="mobileRouteCancel" class="mobile-route-hud-close">✕ Salir</button>
+      </div>
+      <div id="mobileRouteSteps" class="mobile-route-hud-steps"></div>
+    </div>
 
     <div class="stage" id="stage">
       <!-- Default placeholder SVG — will be replaced when a real map is loaded -->
-      <svg id="Layer_1" class="base" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1002">
+      <svg id="Layer_1" class="base" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1002" preserveAspectRatio="none">
         <rect fill="#f0f2f5" width="1600" height="1002" rx="12"/>
         <text x="800" y="480" text-anchor="middle" fill="#8a94a6" font-size="36" font-family="Arial, sans-serif">Cargá un plano SVG desde el modo administrador</text>
         <text x="800" y="530" text-anchor="middle" fill="#b0b8c8" font-size="20" font-family="Arial, sans-serif">o cargá una configuración existente</text>
@@ -689,6 +1135,13 @@ function currentMap() { return maps[currentMapId]; }
 
 function screenToMap(ev) {
   const r = stage.getBoundingClientRect();
+  if (mapRotated) {
+    // Plano girado -90°: el eje X del mapa sube por la pantalla y el eje Y va hacia la derecha
+    return {
+      x: clamp((r.bottom - ev.clientY) / r.height * mapW, 0, mapW),
+      y: clamp((ev.clientX - r.left) / r.width * mapH, 0, mapH)
+    };
+  }
   return {
     x: clamp((ev.clientX - r.left) / r.width * mapW, 0, mapW),
     y: clamp((ev.clientY - r.top) / r.height * mapH, 0, mapH)
@@ -698,53 +1151,333 @@ function mapToPct(p) { return { x: p.x / mapW * 100, y: p.y / mapH * 100 }; }
 
 /* ═══════════════════════════════════════════════
    Map Zoom & Pan (Touch & Mouse Navigation)
+   ───────────────────────────────────────────────
+   El zoom NO se hace estirando una imagen con transform: scale() (eso se ve
+   pixelado en celulares). Se cambia el tamaño real del .stage, así el navegador
+   vuelve a dibujar el SVG nítido a la resolución de pantalla.
+   Durante el pellizco / rueda se usa una escala CSS transitoria para que sea
+   fluido, y al terminar se "confirma" el zoom redibujando en alta resolución.
    ═══════════════════════════════════════════════ */
-let zoomScale = 1;
-let panX = 0;
+let zoomScale = 1;          // zoom visible (1 = plano completo ajustado al contenedor)
+let committedZoom = 1;      // zoom con el que está dibujado el SVG (resolución real)
+let panX = 0;               // posición (px) de la esquina sup. izq. visible del plano
 let panY = 0;
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 4.5;
+let mapRotated = false;     // plano girado 90° para aprovechar pantallas verticales
+let rotateOverride = null;  // null = automático; true/false = elegido con el botón
+let cachedContentBox = null; // caja delimitadora real del contenido del plano
+let pendingOriginSpace = null; // espacio elegido como "Desde aquí" directamente sobre el mapa
+const MIN_ZOOM = 0.85;
+const MAX_ZOOM = 8;
+const PHONE_MQ = window.matchMedia('(max-width: 768px), ((pointer: coarse) and (max-width: 1024px)), (max-height: 540px)');
 let hasDragged = false;
+let commitTimer = null;
+let lastOrientationPortrait = null;
+let lastPhoneLayout = null;
 
-function applyMapTransform() {
-  if (!stage) return;
-  stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
-  if (mapContainer) {
-    if (zoomScale > 1.02) mapContainer.classList.add('is-zoomed');
-    else mapContainer.classList.remove('is-zoomed');
-  }
+function isPhoneLayout() { return PHONE_MQ.matches; }
+
+function containerSize() {
+  const w = mapContainer.clientWidth || window.innerWidth || 1;
+  const h = mapContainer.clientHeight || window.innerHeight || 1;
+  return { w, h };
 }
 
-function resetZoom() {
-  zoomScale = 1;
-  panX = 0;
-  panY = 0;
+// Detecta el área real ocupada por el dibujo del plano y los espacios ubicados,
+// descartando márgenes vacíos del lienzo SVG y sincronizando el color de fondo.
+function computeMapContentBox() {
+  const m = currentMap();
+  const isDefaultSvg = !m || !m.svg || m.svg.includes('Cargá un plano SVG desde el modo administrador');
+  const placedSpaces = Object.values(spaces || {}).filter(p => p && p.x != null && p.y != null);
+  const svg = $('Layer_1');
+
+  // Sincronizar color de fondo del contenedor con el fondo del SVG para evitar bordes o cajas grises
+  let bgFill = '#f0f2f5';
+  let bgRect = null;
+  if (svg) {
+    const firstRect = svg.querySelector(':scope > rect');
+    if (firstRect) {
+      const rw = parseFloat(firstRect.getAttribute('width')) || 0;
+      const rh = parseFloat(firstRect.getAttribute('height')) || 0;
+      if (rw >= mapW * 0.9 && rh >= mapH * 0.9) {
+        bgRect = firstRect;
+        const f = firstRect.getAttribute('fill') || firstRect.style.fill;
+        if (f && f !== 'none' && f !== 'transparent') bgFill = f;
+      }
+    }
+  }
+  if (mapContainer) mapContainer.style.backgroundColor = bgFill;
+  if (isPhoneLayout() && mode === 'user') document.body.style.backgroundColor = bgFill;
+
+  if (isDefaultSvg && placedSpaces.length === 0) {
+    // Para el SVG marcador de posición inicial, encuadrar el texto central sin cortarlo
+    cachedContentBox = {
+      minX: mapW * 0.16,
+      minY: mapH * 0.36,
+      maxX: mapW * 0.84,
+      maxY: mapH * 0.64,
+      w: mapW * 0.68,
+      h: mapH * 0.28,
+      cx: mapW / 2,
+      cy: mapH / 2,
+      isPlaceholder: true
+    };
+    return cachedContentBox;
+  }
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  // 1. Medir geometría real del SVG (ignorando el rectángulo de fondo de hoja completa)
+  if (svg && typeof svg.getBBox === 'function') {
+    const prevDisplay = bgRect ? bgRect.style.display : '';
+    try {
+      if (bgRect) bgRect.style.display = 'none';
+      const bb = svg.getBBox();
+      if (bb && bb.width > 10 && bb.height > 10) {
+        minX = Math.min(minX, bb.x);
+        minY = Math.min(minY, bb.y);
+        maxX = Math.max(maxX, bb.x + bb.width);
+        maxY = Math.max(maxY, bb.y + bb.height);
+      }
+    } catch (e) {
+      // getBBox puede fallar si el SVG aún no está visible
+    } finally {
+      if (bgRect) bgRect.style.display = prevDisplay;
+    }
+  }
+
+  // 2. Incluir todos los espacios ubicados y puntos de recorridos
+  placedSpaces.forEach(p => {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  });
+  Object.values(routes || {}).forEach(path => {
+    (path || []).forEach(pt => {
+      if (pt && pt.x != null && pt.y != null) {
+        minX = Math.min(minX, pt.x);
+        minY = Math.min(minY, pt.y);
+        maxX = Math.max(maxX, pt.x);
+        maxY = Math.max(maxY, pt.y);
+      }
+    });
+  });
+
+  if (!isFinite(minX) || !isFinite(minY) || (maxX - minX) < mapW * 0.08 || (maxY - minY) < mapH * 0.08) {
+    minX = 0; minY = 0; maxX = mapW; maxY = mapH;
+  } else {
+    // Margen suave del 3% alrededor del contenido real del plano
+    const padX = (maxX - minX) * 0.03;
+    const padY = (maxY - minY) * 0.03;
+    minX = clamp(minX - padX, 0, mapW);
+    minY = clamp(minY - padY, 0, mapH);
+    maxX = clamp(maxX + padX, 0, mapW);
+    maxY = clamp(maxY + padY, 0, mapH);
+  }
+
+  cachedContentBox = {
+    minX, minY, maxX, maxY,
+    w: Math.max(1, maxX - minX),
+    h: Math.max(1, maxY - minY),
+    cx: (minX + maxX) / 2,
+    cy: (minY + maxY) / 2,
+    isPlaceholder: false
+  };
+  return cachedContentBox;
+}
+
+function getMapContentBox() {
+  return cachedContentBox || computeMapContentBox();
+}
+
+// Píxeles por unidad del mapa con zoom 1 (plano entero visible)
+function fitScale(rot = mapRotated) {
+  const { w, h } = containerSize();
+  return rot ? Math.min(w / mapH, h / mapW) : Math.min(w / mapW, h / mapH);
+}
+
+// Tamaño visible en pantalla del plano (ya considerando el giro)
+function visualSize(z = zoomScale) {
+  const s = fitScale() * z;
+  return mapRotated ? { w: mapH * s, h: mapW * s } : { w: mapW * s, h: mapH * s };
+}
+
+// Gira automáticamente planos apaisados en celulares verticales cuando el contenido aprovecha mejor el alto
+function shouldRotate() {
+  if (rotateOverride !== null) return rotateOverride;
+  if (mode !== 'user' || !isPhoneLayout()) return false;
+  const cb = getMapContentBox();
+  if (cb.isPlaceholder) return false;
+  const { w: cw, h: ch } = containerSize();
+  const isPortraitScreen = cw < ch;
+  const isLandscapeContent = cb.w > cb.h * 1.15;
+  if (isPortraitScreen && isLandscapeContent) return true;
+  if (!isPortraitScreen && cb.h > cb.w * 1.15) return true;
+  return false;
+}
+
+function updateRotation() {
+  const next = shouldRotate();
+  const btn = $('zoomRotate');
+  if (btn) btn.setAttribute('aria-pressed', String(next));
+  if (next === mapRotated) return false;
+  mapRotated = next;
+  return true;
+}
+
+function applyMapTransform() {
+  if (!stage || !mapContainer) return;
+  const s = fitScale() * committedZoom;
+  const W = mapW * s;
+  const H = mapH * s;
+  const t = zoomScale / committedZoom; // escala transitoria (1 cuando no hay gesto en curso)
+
+  stage.style.width = W + 'px';
+  stage.style.height = H + 'px';
+  stage.style.transform = mapRotated
+    ? `translate(${panX}px, ${panY + W * t}px) rotate(-90deg) scale(${t})`
+    : `translate(${panX}px, ${panY}px) scale(${t})`;
+  stage.style.setProperty('--ps', (1 / t).toFixed(4)); // los puntos mantienen su tamaño durante el gesto
+
+  // Escala adaptativa suave para los marcadores según el tamaño visual del mapa
+  const visW = Math.min(W, H) * t;
+  const markerScale = isPhoneLayout() ? clamp(visW / 420, 0.78, 1.05) : 1;
+  stage.style.setProperty('--ms', markerScale.toFixed(3));
+
+  stage.classList.toggle('rotated', mapRotated);
+  mapContainer.classList.toggle('is-zoomed', zoomScale > 1.02);
+}
+
+// Redibuja el SVG a la resolución del zoom actual
+function commitZoom() {
+  clearTimeout(commitTimer);
+  commitTimer = null;
+  if (Math.abs(committedZoom - zoomScale) < 0.001) return;
+  committedZoom = zoomScale;
   applyMapTransform();
 }
 
-function clampPan() {
-  if (zoomScale <= 1.02 || !mapContainer || !stage) {
-    panX = 0;
-    panY = 0;
-    return;
-  }
-  const cRect = mapContainer.getBoundingClientRect();
-  const sW = stage.offsetWidth * zoomScale;
-  const sH = stage.offsetHeight * zoomScale;
-  const minX = Math.min(0, cRect.width - sW);
-  const minY = Math.min(0, cRect.height - sH);
-  panX = clamp(panX, minX - 60, 60);
-  panY = clamp(panY, minY - 60, 60);
+function scheduleCommit(delay = 140) {
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(commitZoom, delay);
 }
 
-function zoomAtPoint(screenX, screenY, factor) {
+function clampPan() {
   if (!mapContainer) return;
-  const cRect = mapContainer.getBoundingClientRect();
-  const rx = screenX - cRect.left;
-  const ry = screenY - cRect.top;
-  const nextScale = clamp(zoomScale * factor, MIN_ZOOM, MAX_ZOOM);
-  if (Math.abs(nextScale - zoomScale) < 0.01) return;
+  const { w: cw, h: ch } = containerSize();
+  const v = visualSize();
+  // En celular evitamos bordes vacíos cuando el mapa cubre la pantalla; permitimos margen elástico al acercar
+  const M = isPhoneLayout() ? (zoomScale > 1.8 ? 48 : 0) : 40;
+  panX = v.w <= cw ? (cw - v.w) / 2 : clamp(panX, cw - v.w - M, M);
+  panY = v.h <= ch ? (ch - v.h) / 2 : clamp(panY, ch - v.h - M, M);
+}
 
+// Centra el punto (mx, my) del mapa en el contenedor con el nivel de zoom indicado
+function centerOnMapPoint(mx, my, z) {
+  const { w: cw, h: ch } = containerSize();
+  const totalScale = fitScale() * z;
+  const vx = mapRotated ? my * totalScale : mx * totalScale;
+  const vy = mapRotated ? (mapW - mx) * totalScale : my * totalScale;
+  zoomScale = z;
+  committedZoom = z;
+  panX = cw / 2 - vx;
+  panY = ch / 2 - vy;
+  clampPan();
+  applyMapTransform();
+}
+
+// Calcula el zoom y encuadre óptimo en celulares para que el plano ocupe prácticamente el 100% de la pantalla
+function getMobileOptimalView() {
+  const { w: cw, h: ch } = containerSize();
+  const cb = getMapContentBox();
+  const fit = fitScale();
+
+  const vbw = mapRotated ? cb.h : cb.w;
+  const vbh = mapRotated ? cb.w : cb.h;
+
+  // Escala que encaja todo el contenido útil vs escala que cubre toda la pantalla
+  const zContain = Math.min(cw / (vbw * fit), ch / (vbh * fit));
+  const zCover = Math.max(cw / (vbw * fit), ch / (vbh * fit));
+
+  let z = zContain;
+  if (cb.isPlaceholder) {
+    // Encuadrar el texto instructivo ocupando el 94% del ancho disponible sin cortarlo
+    z = clamp((cw * 0.94) / (vbw * fit), 1, 2.5);
+  } else {
+    // Para planos reales: aprovechar al máximo la superficie de la pantalla sin cortar sectores clave
+    const ratio = zCover / Math.max(0.01, zContain);
+    if (ratio <= 1.45) {
+      // Aspecto muy compatible: cubrir prácticamente toda la pantalla
+      z = zCover * 0.96;
+    } else {
+      // Aspecto más alargado: equilibrio entre cobertura de pantalla y visión general del edificio
+      z = Math.max(zContain * 1.15, Math.min(zCover * 0.85, Math.sqrt(zContain * zCover) * 1.1));
+    }
+    z = clamp(z, 1, 4.5);
+  }
+
+  return { z, cx: cb.cx, cy: cb.cy };
+}
+
+function resetZoom(toggleOverview = false) {
+  updateRotation();
+  if (isPhoneLayout() && mode === 'user') {
+    const opt = getMobileOptimalView();
+    // Si el usuario presiona el botón ⟲ ya estando en el zoom óptimo, alterna con la vista completa
+    if (toggleOverview && Math.abs(zoomScale - opt.z) < 0.08 && opt.z > 1.08) {
+      centerOnMapPoint(opt.cx, opt.cy, 1);
+      return;
+    }
+    centerOnMapPoint(opt.cx, opt.cy, opt.z);
+    return;
+  }
+  zoomScale = 1;
+  committedZoom = 1;
+  clampPan(); // con zoom 1 centra el plano en escritorio
+  applyMapTransform();
+}
+
+// Recalcula todo cuando cambia el tamaño u orientación del contenedor/dispositivo
+function refreshMapLayout(forceRefit = false) {
+  if (!mapContainer) return;
+  const { w: cw, h: ch } = containerSize();
+  const isPortrait = cw < ch;
+  const phoneNow = isPhoneLayout();
+
+  const orientationChanged = lastOrientationPortrait !== null && lastOrientationPortrait !== isPortrait;
+  const layoutModeChanged = lastPhoneLayout !== null && lastPhoneLayout !== phoneNow;
+  lastOrientationPortrait = isPortrait;
+  lastPhoneLayout = phoneNow;
+
+  if (orientationChanged) {
+    // Al girar físicamente el celular, volver al cálculo inteligente de orientación
+    rotateOverride = null;
+  }
+
+  const rotChanged = updateRotation();
+
+  if (forceRefit || orientationChanged || layoutModeChanged || rotChanged) {
+    if (mode === 'user' && userRouteActive) {
+      focusActiveRoute();
+    } else {
+      resetZoom(false);
+    }
+    return;
+  }
+
+  clampPan();
+  applyMapTransform();
+}
+
+function localPoint(clientX, clientY) {
+  const r = mapContainer.getBoundingClientRect();
+  return { x: clientX - r.left - mapContainer.clientLeft, y: clientY - r.top - mapContainer.clientTop };
+}
+
+// Zoom manteniendo fijo el punto (rx, ry) del contenedor
+function zoomTo(nextScale, rx, ry) {
+  nextScale = clamp(nextScale, MIN_ZOOM, MAX_ZOOM);
+  if (Math.abs(nextScale - zoomScale) < 0.001) return;
   panX = rx - (rx - panX) * (nextScale / zoomScale);
   panY = ry - (ry - panY) * (nextScale / zoomScale);
   zoomScale = nextScale;
@@ -752,10 +1485,40 @@ function zoomAtPoint(screenX, screenY, factor) {
   applyMapTransform();
 }
 
+function zoomAtPoint(clientX, clientY, factor) {
+  if (!mapContainer) return;
+  const p = localPoint(clientX, clientY);
+  zoomTo(zoomScale * factor, p.x, p.y);
+}
+
 function zoomAtCenter(factor) {
   if (!mapContainer) return;
-  const cRect = mapContainer.getBoundingClientRect();
-  zoomAtPoint(cRect.left + cRect.width / 2, cRect.top + cRect.height / 2, factor);
+  const { w, h } = containerSize();
+  zoomTo(zoomScale * factor, w / 2, h / 2);
+}
+
+// Acerca y centra la vista sobre un conjunto de puntos del mapa (ej.: el recorrido)
+function focusOnMapPoints(pts) {
+  pts = (pts || []).filter(p => p && p.x != null && p.y != null);
+  if (!pts.length || !mapContainer) return;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const bw = Math.max(maxX - minX, mapW * 0.1);
+  const bh = Math.max(maxY - minY, mapH * 0.1);
+  const vbw = mapRotated ? bh : bw;
+  const vbh = mapRotated ? bw : bh;
+  const { w: cw, h: ch } = containerSize();
+  const fit = fitScale();
+  const z = clamp(Math.min(cw * 0.76 / (vbw * fit), ch * 0.72 / (vbh * fit)), 1, 4.2);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  centerOnMapPoint(cx, cy, z);
+}
+
+function focusActiveRoute() {
+  const path = activeRouteKey && routes[activeRouteKey];
+  if (path && path.length) return focusOnMapPoints(path);
+  focusOnMapPoints([spaces[userRouteFrom], spaces[userRouteTo]]);
 }
 
 function initMapZoomPan() {
@@ -764,16 +1527,39 @@ function initMapZoomPan() {
   const btnIn = $('zoomIn');
   const btnOut = $('zoomOut');
   const btnReset = $('zoomReset');
+  const btnRotate = $('zoomRotate');
 
-  if (btnIn) btnIn.onclick = e => { e.stopPropagation(); zoomAtCenter(1.35); };
-  if (btnOut) btnOut.onclick = e => { e.stopPropagation(); zoomAtCenter(0.74); };
-  if (btnReset) btnReset.onclick = e => { e.stopPropagation(); resetZoom(); };
+  if (btnIn) btnIn.onclick = e => { e.stopPropagation(); zoomAtCenter(1.45); commitZoom(); };
+  if (btnOut) btnOut.onclick = e => { e.stopPropagation(); zoomAtCenter(1 / 1.45); commitZoom(); };
+  if (btnReset) btnReset.onclick = e => { e.stopPropagation(); resetZoom(true); };
+  if (btnRotate) btnRotate.onclick = e => {
+    e.stopPropagation();
+    rotateOverride = !mapRotated;
+    updateRotation();
+    resetZoom(false);
+  };
+
+  // Recalcular al cambiar tamaño u orientación de pantalla (incluyendo barras dinámicas de celulares)
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => refreshMapLayout(false)).observe(mapContainer);
+  }
+  window.addEventListener('resize', () => refreshMapLayout(false));
+  window.addEventListener('orientationchange', () => {
+    refreshMapLayout( true );
+    setTimeout(() => refreshMapLayout(true), 120);
+    setTimeout(() => refreshMapLayout(true), 320);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => refreshMapLayout(false));
+  }
+  refreshMapLayout(true);
 
   // Mouse wheel zoom
   mapContainer.addEventListener('wheel', e => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.15 : 0.87;
     zoomAtPoint(e.clientX, e.clientY, factor);
+    scheduleCommit();
   }, { passive: false });
 
   // Mouse drag pan
@@ -783,7 +1569,14 @@ function initMapZoomPan() {
 
   mapContainer.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
-    if (e.target.closest('.point') || e.target.closest('.map-controls')) return;
+    if (
+      e.target.closest('.point') ||
+      e.target.closest('.map-controls') ||
+      e.target.closest('.map-badge') ||
+      e.target.closest('.mobile-fab') ||
+      e.target.closest('.point-popup') ||
+      e.target.closest('.mobile-route-hud')
+    ) return;
     isMouseDown = true;
     hasDragged = false;
     mouseStartX = e.clientX - panX;
@@ -813,94 +1606,132 @@ function initMapZoomPan() {
   });
 
   // Touch gesture pan & pinch-to-zoom
-  let isTouching = false;
-  let touchStartDist = 0;
-  let touchStartScale = 1;
-  let touchStartPanX = 0;
-  let touchStartPanY = 0;
-  let touchStartMidX = 0;
-  let touchStartMidY = 0;
-  let touchStartX = 0;
-  let touchStartY = 0;
-  let lastTapTime = 0;
+  let touchMode = null;       // 'pan' | 'pinch' | null
+  let panStartX = 0, panStartY = 0;
+  let pinchDist = 0, pinchScale = 1, pinchPanX = 0, pinchPanY = 0;
+  let pinchMidX = 0, pinchMidY = 0;
+  let tapStart = null;        // para detectar toques sin movimiento (doble toque)
+  let lastTap = { t: 0, x: 0, y: 0 };
+
+  function beginPan(t) {
+    touchMode = 'pan';
+    panStartX = t.clientX - panX;
+    panStartY = t.clientY - panY;
+  }
+
+  function beginPinch(t0, t1) {
+    touchMode = 'pinch';
+    pinchDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY) || 1;
+    pinchScale = zoomScale;
+    pinchPanX = panX;
+    pinchPanY = panY;
+    const mid = localPoint((t0.clientX + t1.clientX) / 2, (t0.clientY + t1.clientY) / 2);
+    pinchMidX = mid.x;
+    pinchMidY = mid.y;
+  }
+
+  function isFloatingUiTarget(target) {
+    return Boolean(
+      target.closest('.map-controls') ||
+      target.closest('.map-badge') ||
+      target.closest('.mobile-fab') ||
+      target.closest('.point-popup') ||
+      target.closest('.mobile-route-hud')
+    );
+  }
 
   mapContainer.addEventListener('touchstart', e => {
-    if (e.target.closest('.point') || e.target.closest('.map-controls')) return;
-
+    if (isFloatingUiTarget(e.target)) return;
     if (e.touches.length === 1) {
-      isTouching = true;
+      // En modo admin + espacios, permitir arrastrar el marcador en vez del mapa
+      if (mode === 'admin' && adminSubmode === 'spaces' && e.target.closest('.point')) return;
+      if (isPhoneLayout() && typeof setSheetOpen === 'function') setSheetOpen(false);
       hasDragged = false;
-      touchStartX = e.touches[0].clientX - panX;
-      touchStartY = e.touches[0].clientY - panY;
+      tapStart = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        moved: false,
+        onPoint: Boolean(e.target.closest('.point'))
+      };
+      beginPan(e.touches[0]);
       mapContainer.classList.add('is-panning');
-    } else if (e.touches.length === 2) {
-      isTouching = false;
+    } else if (e.touches.length >= 2) {
       hasDragged = true;
-      touchStartDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      touchStartScale = zoomScale;
-      touchStartPanX = panX;
-      touchStartPanY = panY;
-      const cRect = mapContainer.getBoundingClientRect();
-      touchStartMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - cRect.left;
-      touchStartMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - cRect.top;
+      tapStart = null;
+      beginPinch(e.touches[0], e.touches[1]);
     }
   }, { passive: true });
 
   mapContainer.addEventListener('touchmove', e => {
-    if (isTouching && e.touches.length === 1) {
+    if (touchMode === 'pan' && e.touches.length === 1) {
+      const t = e.touches[0];
+      const distMoved = tapStart ? Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) : 10;
+      if (tapStart && !tapStart.moved && distMoved <= 7) {
+        return; // tolerancia para que un toque sobre un marcador no se convierta en arrastre
+      }
       if (e.cancelable) e.preventDefault();
-      const nextPanX = e.touches[0].clientX - touchStartX;
-      const nextPanY = e.touches[0].clientY - touchStartY;
-      if (Math.hypot(nextPanX - panX, nextPanY - panY) > 5) {
+      if (tapStart) {
+        tapStart.moved = true;
         hasDragged = true;
       }
-      panX = nextPanX;
-      panY = nextPanY;
+      panX = t.clientX - panStartX;
+      panY = t.clientY - panStartY;
       clampPan();
       applyMapTransform();
-    } else if (e.touches.length === 2 && touchStartDist > 0) {
+    } else if (touchMode === 'pinch' && e.touches.length >= 2) {
       if (e.cancelable) e.preventDefault();
-      const currentDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const factor = currentDist / touchStartDist;
-      const nextScale = clamp(touchStartScale * factor, MIN_ZOOM, MAX_ZOOM);
-      panX = touchStartMidX - (touchStartMidX - touchStartPanX) * (nextScale / touchStartScale);
-      panY = touchStartMidY - (touchStartMidY - touchStartPanY) * (nextScale / touchStartScale);
+      const t0 = e.touches[0], t1 = e.touches[1];
+      const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+      const mid = localPoint((t0.clientX + t1.clientX) / 2, (t0.clientY + t1.clientY) / 2);
+      const nextScale = clamp(pinchScale * (dist / pinchDist), MIN_ZOOM, MAX_ZOOM);
+      // El punto del mapa que estaba bajo los dedos sigue bajo los dedos (zoom + arrastre)
+      panX = mid.x - (pinchMidX - pinchPanX) * (nextScale / pinchScale);
+      panY = mid.y - (pinchMidY - pinchPanY) * (nextScale / pinchScale);
       zoomScale = nextScale;
       clampPan();
       applyMapTransform();
     }
   }, { passive: false });
 
-  mapContainer.addEventListener('touchend', e => {
-    if (isTouching) {
-      isTouching = false;
-      mapContainer.classList.remove('is-panning');
-      setTimeout(() => { hasDragged = false; }, 60);
+  function onTouchEnd(e) {
+    if (e.touches.length === 1 && touchMode === 'pinch') {
+      // Queda un dedo: seguir arrastrando con él
+      commitZoom();
+      beginPan(e.touches[0]);
+      return;
     }
-    touchStartDist = 0;
+    if (e.touches.length > 0) return;
 
-    // Double tap to zoom toggle
-    if (e.changedTouches.length === 1 && !e.target.closest('.point') && !e.target.closest('.map-controls')) {
+    const wasTap = touchMode === 'pan' && tapStart && !tapStart.moved;
+    const tappedOnPoint = tapStart && tapStart.onPoint;
+    touchMode = null;
+    mapContainer.classList.remove('is-panning');
+    commitZoom(); // redibujar nítido al soltar
+    setTimeout(() => { hasDragged = false; }, 60);
+
+    // Si tocó el fondo del mapa en celular, cerrar el popup de espacio
+    if (wasTap && !tappedOnPoint && isPhoneLayout()) {
+      closePointPopup();
+    }
+
+    // Doble toque sobre el mapa: acercar / restablecer vista óptima
+    if (wasTap && !tappedOnPoint && e.type === 'touchend' && e.changedTouches.length === 1) {
+      const t = e.changedTouches[0];
       const now = Date.now();
-      if (now - lastTapTime < 320) {
-        const t = e.changedTouches[0];
-        if (zoomScale > 1.3) {
-          resetZoom();
-        } else {
-          zoomAtPoint(t.clientX, t.clientY, 2);
-        }
-        lastTapTime = 0;
+      if (now - lastTap.t < 320 && Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) < 40) {
+        const baseZ = (isPhoneLayout() && mode === 'user') ? getMobileOptimalView().z : 1;
+        if (zoomScale > baseZ * 1.35) resetZoom(false);
+        else { zoomAtPoint(t.clientX, t.clientY, 1.9); commitZoom(); }
+        lastTap.t = 0;
       } else {
-        lastTapTime = now;
+        lastTap = { t: now, x: t.clientX, y: t.clientY };
       }
     }
-  });
+    tapStart = null;
+  }
+
+  mapContainer.addEventListener('touchend', onTouchEnd);
+  mapContainer.addEventListener('touchcancel', onTouchEnd);
 }
 
 /* ═══════════════════════════════════════════════
@@ -963,6 +1794,9 @@ function loadMap(id, preserveRoute = false, skipSync = false) {
   selectedSpace = 1;
   activeRouteKey = null;
   drawing = null;
+  cachedContentBox = null;
+  pendingOriginSpace = null;
+  closePointPopup();
 
   if (!preserveRoute) {
     userRouteActive = false;
@@ -972,14 +1806,16 @@ function loadMap(id, preserveRoute = false, skipSync = false) {
     crossMapSteps = null;
     $('cancelUserRoute')?.classList.add('hidden');
     $('crossMapNav')?.classList.add('hidden');
+    updateMobileRouteHud();
   }
 
-  const vb = (m.viewBox || DEFAULT_VB).trim().split(/\s+/).map(Number);
+  const vb = (m.viewBox || DEFAULT_VB).trim().split(/[\s,]+/).map(Number);
   mapW = vb[2] || 1600;
   mapH = vb[3] || 1002;
 
   renderMapSvg(m.svg || DEFAULT_SVG, m.viewBox || DEFAULT_VB);
   renderAll();
+  computeMapContentBox();
   resetZoom();
   $('mapStatus').textContent = `Mapa activo: ${mapLabel(m)}`;
   const badge = $('mapBadge');
@@ -1019,10 +1855,11 @@ function renderMapSvg(markup, viewBox) {
   svg.setAttribute('id', 'Layer_1');
   svg.classList.add('base');
   svg.setAttribute('viewBox', viewBox);
+  svg.setAttribute('preserveAspectRatio', 'none');
   svg.removeAttribute('width');
   svg.removeAttribute('height');
   svg.style.width = '100%';
-  svg.style.height = 'auto';
+  svg.style.height = '100%';
 
   const imported = document.importNode(svg, true);
   const old = $('Layer_1');
@@ -1139,10 +1976,92 @@ function renderPoints() {
   });
 
   overlay.appendChild(frag);
+  updateSheetSummary(); // renderPoints se llama en todos los cambios de recorrido/mapa
+}
+
+/* ═══════════════════════════════════════════════
+   Interfaz flotante para celulares (modo usuario)
+   ═══════════════════════════════════════════════ */
+function setSheetOpen(open) {
+  const ui = $('userUI');
+  const backdrop = $('sheetBackdrop');
+  if (!ui) return;
+  if (open) closePointPopup();
+  ui.classList.toggle('is-open', open);
+  backdrop?.classList.toggle('is-open', open);
+  document.body.classList.toggle('sheet-open', open);
+  $('sheetToggle')?.setAttribute('aria-expanded', String(open));
+}
+
+function updateSheetSummary() {
+  const title = $('sheetTitle');
+  const sub = $('sheetSub');
+  if (!title || !sub) return;
+  title.textContent = userRouteActive ? '🧭 Recorrido activo · tocá para cambiar' : '🚶 ¿A dónde querés ir?';
+  sub.textContent = $('userStatus')?.textContent || '';
+}
+
+function openPointPopup(n) {
+  const popup = $('pointPopup');
+  if (!popup || !isPhoneLayout() || mode !== 'user') return;
+  setSheetOpen(false);
+  $('popupSpaceNum').textContent = n;
+  const cm = currentMap();
+  const link = (cm?.links || []).find(l => l.localSpace === n);
+  let text = label(n);
+  if (link && maps[link.targetMapId]) {
+    text += ` · 🔗 ${mapLabel(maps[link.targetMapId])}`;
+  }
+  $('popupSpaceName').textContent = text;
+  popup.dataset.space = n;
+  popup.classList.remove('hidden');
+  document.body.classList.add('popup-open');
+}
+
+function closePointPopup() {
+  const popup = $('pointPopup');
+  if (!popup) return;
+  popup.classList.add('hidden');
+  document.body.classList.remove('popup-open');
+}
+
+function updateMobileRouteHud() {
+  const hud = $('mobileRouteHud');
+  const txt = $('mobileRouteText');
+  const stepsEl = $('mobileRouteSteps');
+  if (!hud || !txt || !stepsEl) return;
+
+  if (!userRouteActive || mode !== 'user') {
+    hud.classList.add('hidden');
+    stepsEl.innerHTML = '';
+    return;
+  }
+
+  hud.classList.remove('hidden');
+  txt.textContent = $('userStatus')?.textContent || `🟢 ${label(userRouteFrom)} → 🔴 ${label(userRouteTo)}`;
+  stepsEl.innerHTML = '';
+
+  if (crossMapSteps && crossMapSteps.length > 1) {
+    if (crossMapStep > 0) {
+      const bPrev = document.createElement('button');
+      bPrev.type = 'button';
+      bPrev.textContent = '← Tramo anterior';
+      bPrev.onclick = () => showCrossMapStep(crossMapStep - 1);
+      stepsEl.appendChild(bPrev);
+    }
+    if (crossMapStep < crossMapSteps.length - 1) {
+      const bNext = document.createElement('button');
+      bNext.type = 'button';
+      bNext.textContent = 'Siguiente tramo →';
+      bNext.onclick = () => showCrossMapStep(crossMapStep + 1);
+      stepsEl.appendChild(bNext);
+    }
+  }
 }
 
 // Event delegation for point interactions
 overlay.addEventListener('click', e => {
+  if (hasDragged) return;
   const btn = e.target.closest('.point');
   if (!btn) return;
   e.stopPropagation();
@@ -1150,6 +2069,26 @@ overlay.addEventListener('click', e => {
   const n = +btn.dataset.space;
 
   if (mode === 'user') {
+    selectedSpace = n;
+    renderPoints();
+
+    if (isPhoneLayout()) {
+      // Si el usuario ya había elegido "Desde aquí" en otro punto, trazar el recorrido directo
+      if (pendingOriginSpace && pendingOriginSpace !== n) {
+        const orig = pendingOriginSpace;
+        pendingOriginSpace = null;
+        $('userFrom').value = orig;
+        $('userTo').value = String(n);
+        closePointPopup();
+        crossMapSteps = null;
+        $('crossMapNav').classList.add('hidden');
+        startSingleMapRoute(orig, n);
+        return;
+      }
+      openPointPopup(n);
+      return;
+    }
+
     if (userRouteActive) return;
 
     const fromVal = $('userFrom').value;
@@ -1558,6 +2497,10 @@ function renderAll() {
 function setMode(next) {
   if (next === 'admin' && !adminUnlocked) return openLogin();
   mode = next;
+  document.body.classList.toggle('mode-user', next === 'user');
+  setSheetOpen(false);
+  closePointPopup();
+  pendingOriginSpace = null;
   $('adminMode').classList.toggle('active', next === 'admin');
   $('userMode').classList.toggle('active', next === 'user');
   $('adminUI').classList.toggle('hidden', next !== 'admin');
@@ -1571,8 +2514,10 @@ function setMode(next) {
   crossMapSteps = null;
   $('cancelUserRoute').classList.add('hidden');
   $('crossMapNav').classList.add('hidden');
+  updateMobileRouteHud();
   renderAll();
   if (next === 'user') $('userStatus').textContent = 'Elegí edificio, nivel, origen y destino.';
+  refreshMapLayout(true); // el contenedor cambia de tamaño entre modos
 }
 
 function setAdminSubmode(sub) {
@@ -1632,6 +2577,7 @@ stage.addEventListener('click', e => {
     if (!spaces[selectedSpace]) return;
     spaces[selectedSpace].x = p.x;
     spaces[selectedSpace].y = p.y;
+    cachedContentBox = null;
     syncCurrentMap();
     renderPoints();
     renderSpaceList();
@@ -1652,6 +2598,64 @@ stage.addEventListener('click', e => {
    Event bindings — Buttons
    ═══════════════════════════════════════════════ */
 $('adminAccess').onclick = openLogin;
+$('sheetAdmin').onclick = () => { setSheetOpen(false); openLogin(); };
+$('sheetToggle').onclick = () => setSheetOpen(!$('userUI').classList.contains('is-open'));
+if ($('sheetClose')) $('sheetClose').onclick = () => setSheetOpen(false);
+if ($('sheetBackdrop')) $('sheetBackdrop').onclick = () => setSheetOpen(false);
+if ($('mobileFab')) $('mobileFab').onclick = e => { e.stopPropagation(); setSheetOpen(true); };
+if ($('mapBadge')) {
+  $('mapBadge').onclick = e => {
+    if (!isPhoneLayout() || mode !== 'user') return;
+    e.stopPropagation();
+    setSheetOpen(!$('userUI').classList.contains('is-open'));
+  };
+}
+if ($('popupClose')) $('popupClose').onclick = e => { e.stopPropagation(); closePointPopup(); };
+if ($('popupSetOrigin')) {
+  $('popupSetOrigin').onclick = e => {
+    e.stopPropagation();
+    const n = +($('pointPopup')?.dataset.space || 0);
+    if (!n) return;
+    pendingOriginSpace = n;
+    $('userFrom').value = String(n);
+    $('userStatus').textContent = `Origen: ${label(n)}. Tocá el punto de destino en el mapa.`;
+    $('userStatus').className = 'status status-ok';
+    closePointPopup();
+    showToast(`🟢 Origen: ${label(n)}. Ahora tocá el destino en el mapa.`, 'success', 2800);
+  };
+}
+if ($('popupSetDest')) {
+  $('popupSetDest').onclick = e => {
+    e.stopPropagation();
+    const n = +($('pointPopup')?.dataset.space || 0);
+    if (!n) return;
+    const orig = pendingOriginSpace || +$('userFrom').value;
+    pendingOriginSpace = null;
+    closePointPopup();
+    if (!orig || orig === n) {
+      setSheetOpen(true);
+      $('userTo').value = String(n);
+      showToast('Elegí desde qué espacio salís', 'info', 2400);
+      return;
+    }
+    $('userFrom').value = String(orig);
+    $('userTo').value = String(n);
+    crossMapSteps = null;
+    $('crossMapNav').classList.add('hidden');
+    startSingleMapRoute(orig, n);
+  };
+}
+if ($('mobileRouteCancel')) {
+  $('mobileRouteCancel').onclick = e => {
+    e.stopPropagation();
+    $('cancelUserRoute')?.click();
+  };
+}
+// El resumen de la hoja replica el mensaje de estado
+new MutationObserver(() => {
+  updateSheetSummary();
+  updateMobileRouteHud();
+}).observe($('userStatus'), { childList: true, characterData: true, subtree: true });
 $('cancelLogin').onclick = closeLogin;
 $('loginBtn').onclick = doLogin;
 $('adminPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -1664,7 +2668,10 @@ $('routesMode').onclick = () => setAdminSubmode('routes');
 
 $('applyCount').onclick = () => ensureSpaces($('spaceCount').value);
 
-$('userMap').onchange = e => loadMap(e.target.value);
+$('userMap').onchange = e => {
+  loadMap(e.target.value);
+  if (isPhoneLayout()) setSheetOpen(false);
+};
 
 /* ── Route drawing controls ── */
 $('newRoute').onclick = () => {
@@ -1692,6 +2699,7 @@ $('finishRoute').onclick = () => {
   const a = drawing.a, b = drawing.b;
   drawing = null;
   activeRouteKey = routeKey(a, b);
+  cachedContentBox = null;
   syncCurrentMap();
   ['finishRoute', 'undoRoute', 'cancelRoute'].forEach(id => $(id).classList.add('hidden'));
   $('newRoute').classList.remove('hidden');
@@ -1724,6 +2732,7 @@ function startSingleMapRoute(a, b) {
   userRouteFrom = a;
   userRouteTo = b;
   activeRouteKey = routeKey(a, b);
+  closePointPopup();
 
   const exists = !!routes[activeRouteKey];
   const st = $('userStatus');
@@ -1738,8 +2747,11 @@ function startSingleMapRoute(a, b) {
   $('cancelUserRoute').classList.remove('hidden');
   renderPoints();
   renderRoutes();
-  if (window.innerWidth <= 768 && mapContainer) {
-    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  updateMobileRouteHud();
+  if (isPhoneLayout()) {
+    // Cerrar la hoja y acercar el mapa al recorrido para verlo bien en el celular
+    setSheetOpen(false);
+    focusActiveRoute();
   }
 }
 
@@ -1847,6 +2859,7 @@ function showCrossMapStep(stepIndex) {
   userRouteFrom = step.from;
   userRouteTo = step.to;
   activeRouteKey = routeKey(step.from, step.to);
+  closePointPopup();
 
   const exists = !!routes[activeRouteKey];
   const st = $('userStatus');
@@ -1886,8 +2899,10 @@ function showCrossMapStep(stepIndex) {
   $('cancelUserRoute').classList.remove('hidden');
   renderPoints();
   renderRoutes();
-  if (window.innerWidth <= 768 && mapContainer) {
-    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  updateMobileRouteHud();
+  if (isPhoneLayout()) {
+    setSheetOpen(false);
+    focusActiveRoute();
   }
 }
 
@@ -1924,12 +2939,17 @@ $('cancelUserRoute').onclick = () => {
   userRouteTo = null;
   activeRouteKey = null;
   crossMapSteps = null;
+  pendingOriginSpace = null;
   $('cancelUserRoute').classList.add('hidden');
   $('crossMapNav').classList.add('hidden');
   $('userStatus').textContent = 'Elegí edificio, nivel, origen y destino.';
   $('userStatus').className = 'status';
+  updateMobileRouteHud();
   renderPoints();
   renderRoutes();
+  if (isPhoneLayout()) {
+    resetZoom(false);
+  }
 };
 
 /* ── Cross-map step navigation ── */
@@ -2278,4 +3298,6 @@ initApp();
 </script>
 </body>
 </html>
+
+
 
